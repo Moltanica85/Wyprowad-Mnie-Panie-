@@ -1,464 +1,249 @@
-// ============================================================
-// "Wprowadź Mnie Panie" — Naprawiony System Kolizji
-// ============================================================
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Wprowadź Mnie Panie - Hardcore Edition</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden; touch-action: none; font-family: 'Georgia', serif; }
+#gameCanvas { display: block; margin: 0 auto; background: #111; }
+#fullscreenBtn { position: fixed; top: 10px; right: 10px; z-index: 100; background: rgba(255,255,255,0.1); border: 1px solid #444; color: #fff; padding: 5px 10px; border-radius: 4px; font-size: 10px; cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<button id="fullscreenBtn">⛶ Fullscreen</button>
 
+<script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// --- Fullscreen ---
-document.getElementById('fullscreenBtn').addEventListener('click', () => {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen?.() ||
-    document.documentElement.webkitRequestFullscreen?.();
-  } else {
-    document.exitFullscreen?.() || document.webkitExitFullscreen?.();
-  }
-});
-
-// --- Screen Sizing (9:16) ---
+// --- Skalowanie ---
 function resize() {
-  const aspect = 9 / 16;
-  let h = window.innerHeight;
-  let w = h * aspect;
-  if (w > window.innerWidth) { w = window.innerWidth; h = w / aspect; }
-  canvas.width = Math.floor(w);
-  canvas.height = Math.floor(h);
-  canvas.style.width = w + 'px';
-  canvas.style.height = h + 'px';
-  canvas.style.position = 'absolute';
-  canvas.style.left = ((window.innerWidth - w) / 2) + 'px';
-  canvas.style.top = ((window.innerHeight - h) / 2) + 'px';
+    const aspect = 9 / 16;
+    let h = window.innerHeight, w = h * aspect;
+    if (w > window.innerWidth) { w = window.innerWidth; h = w / aspect; }
+    canvas.width = Math.floor(w); canvas.height = Math.floor(h);
+    canvas.style.position = 'absolute';
+    canvas.style.left = ((window.innerWidth - w) / 2) + 'px';
+    canvas.style.top = ((window.innerHeight - h) / 2) + 'px';
 }
 window.addEventListener('resize', resize);
 resize();
 
+// --- Dane Poziomów ---
 const LEVEL_DATA = [
-  { name: "Dziedziniec", sub: "Poziom 1", wallColor: "#d4c9a8", floorColor: "#f5f0e0", fogRadius: 0, wallTex: "sand", ambient: 1.0 },
-  { name: "Krużganki", sub: "Poziom 2", wallColor: "#b8a88a", floorColor: "#e8e0d0", fogRadius: 0, wallTex: "stone_light", ambient: 0.95 },
-  { name: "Ogrody Zapomnienia", sub: "Poziom 3", wallColor: "#4a7a3a", floorColor: "#c8d8a8", fogRadius: 0, wallTex: "hedge", ambient: 0.9 },
-  { name: "Kamienna Biblioteka", sub: "Poziom 4", wallColor: "#6b5a45", floorColor: "#a89880", fogRadius: 0, wallTex: "stone_heavy", ambient: 0.7 },
-  { name: "Piwnice", sub: "Poziom 5", wallColor: "#3a3530", floorColor: "#5a5550", fogRadius: 150, wallTex: "dark_stone", ambient: 0.3 },
-  { name: "Katedra Prób", sub: "Poziom 6", wallColor: "#4a3060", floorColor: "#6a5a70", fogRadius: 180, wallTex: "stained_glass", ambient: 0.5 },
-  { name: "Mechanizm", sub: "Poziom 7", wallColor: "#555555", floorColor: "#888070", fogRadius: 160, wallTex: "metal", ambient: 0.4 },
-  { name: "Krypta Cieni", sub: "Poziom 8", wallColor: "#2a2520", floorColor: "#4a4540", fogRadius: 120, wallTex: "crypt", ambient: 0.2 },
-  { name: "Labirynt Luster", sub: "Poziom 9", wallColor: "#7090a0", floorColor: "#506070", fogRadius: 130, wallTex: "mirror", ambient: 0.35 },
-  { name: "Sacrum", sub: "Poziom 10", wallColor: "#f0e8d0", floorColor: "#201818", fogRadius: 100, wallTex: "sacrum", ambient: 0.15 }
+    { name: "Dziedziniec", wall: "#8e8671", floor: "#f5f0e0", fog: 0 },
+    { name: "Krużganki", wall: "#7d6e52", floor: "#e8e0d0", fog: 0 },
+    { name: "Ogrody", wall: "#2d4a22", floor: "#c8d8a8", fog: 0 },
+    { name: "Biblioteka", wall: "#4a3b2a", floor: "#a89880", fog: 150 },
+    { name: "Piwnice", wall: "#2a2825", floor: "#5a5550", fog: 130 },
+    { name: "Katedra", wall: "#3a2050", floor: "#6a5a70", fog: 120 },
+    { name: "Mechanizm", wall: "#444", floor: "#888070", fog: 110 },
+    { name: "Krypta", wall: "#1a1815", floor: "#3a3530", fog: 100 },
+    { name: "Lustra", wall: "#507080", floor: "#506070", fog: 90 },
+    { name: "Sacrum", wall: "#d0c8b0", floor: "#1a1010", fog: 80 }
 ];
 
-class MazeGenerator {
-  constructor(cols, rows) {
-    this.cols = cols; this.rows = rows;
-    this.grid = []; this.generate();
-  }
-  generate() {
-    for (let i = 0; i < this.rows; i++) {
-      this.grid[i] = [];
-      for (let j = 0; j < this.cols; j++) {
-        this.grid[i][j] = { top: true, right: true, bottom: true, left: true, visited: false };
-      }
+// --- Generator Labiryntu ---
+class Maze {
+    constructor(cols, rows) {
+        this.cols = cols; this.rows = rows;
+        this.grid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({
+            v: false, walls: [true, true, true, true] // góra, prawo, dół, lewo
+        })));
+        this.generate(0, 0);
     }
-    const stack = [];
-    let cur = { r: 0, c: 0 };
-    this.grid[0][0].visited = true;
-    stack.push(cur);
-    while (stack.length > 0) {
-      const neighbors = [];
-      const { r, c } = cur;
-      if (r > 0 && !this.grid[r-1][c].visited) neighbors.push({ r: r-1, c, dir: 'top' });
-      if (r < this.rows-1 && !this.grid[r+1][c].visited) neighbors.push({ r: r+1, c, dir: 'bottom' });
-      if (c > 0 && !this.grid[r][c-1].visited) neighbors.push({ r, c: c-1, dir: 'left' });
-      if (c < this.cols-1 && !this.grid[r][c+1].visited) neighbors.push({ r, c: c+1, dir: 'right' });
-      if (neighbors.length > 0) {
-        const next = neighbors[Math.floor(Math.random() * neighbors.length)];
-        if (next.dir === 'top') { this.grid[r][c].top = false; this.grid[next.r][next.c].bottom = false; }
-        if (next.dir === 'bottom') { this.grid[r][c].bottom = false; this.grid[next.r][next.c].top = false; }
-        if (next.dir === 'left') { this.grid[r][c].left = false; this.grid[next.r][next.c].right = false; }
-        if (next.dir === 'right') { this.grid[r][c].right = false; this.grid[next.r][next.c].left = false; }
-        this.grid[next.r][next.c].visited = true;
-        stack.push(cur); cur = next;
-      } else { cur = stack.pop(); }
+    generate(r, c) {
+        this.grid[r][c].v = true;
+        const dirs = [[-1, 0, 0, 2], [0, 1, 1, 3], [1, 0, 2, 0], [0, -1, 3, 1]].sort(() => Math.random() - 0.5);
+        for (const [dr, dc, wIdx, opp] of dirs) {
+            const nr = r + dr, nc = c + dc;
+            if (nr >= 0 && nr < this.rows && nc >= 0 && nc < this.cols && !this.grid[nr][nc].v) {
+                this.grid[r][c].walls[wIdx] = false;
+                this.grid[nr][nc].walls[opp] = false;
+                this.generate(nr, nc);
+            }
+        }
     }
-  }
-  toPixelMap(cellSize, wallThickness) {
-    const mapW = this.cols * cellSize + wallThickness;
-    const mapH = this.rows * cellSize + wallThickness;
-    const map = [];
-    for (let y = 0; y < mapH; y++) {
-      map[y] = [];
-      for (let x = 0; x < mapW; x++) map[y][x] = 1;
-    }
-    for (let r = 0; r < this.rows; r++) {
-      for (let c = 0; c < this.cols; c++) {
-        const cell = this.grid[r][c];
-        const x0 = wallThickness + c * cellSize;
-        const y0 = wallThickness + r * cellSize;
-        const cw = cellSize - wallThickness;
-        for (let y = y0; y < y0 + cw; y++)
-          for (let x = x0; x < x0 + cw; x++)
-            if (y >= 0 && y < mapH && x >= 0 && x < mapW) map[y][x] = 0;
-        if (!cell.top) for (let y = y0 - wallThickness; y < y0; y++) for (let x = x0; x < x0 + cw; x++) map[y][x] = 0;
-        if (!cell.bottom) for (let y = y0 + cw; y < y0 + cw + wallThickness; y++) for (let x = x0; x < x0 + cw; x++) map[y][x] = 0;
-        if (!cell.left) for (let y = y0; y < y0 + cw; y++) for (let x = x0 - wallThickness; x < x0; x++) map[y][x] = 0;
-        if (!cell.right) for (let y = y0; y < y0 + cw; y++) for (let x = x0 + cw; x < x0 + cw + wallThickness; x++) map[y][x] = 0;
-      }
-    }
-    return { map, width: mapW, height: mapH };
-  }
 }
 
-function generateWallTexture(type, w, h, baseColor) {
-  const off = document.createElement('canvas');
-  off.width = w; off.height = h;
-  const c = off.getContext('2d');
-  c.fillStyle = baseColor;
-  c.fillRect(0, 0, w, h);
-  const rng = () => Math.random();
-  if (type === 'sand') {
-    for (let i = 0; i < w * h * 0.05; i++) {
-      c.fillStyle = `rgba(0,0,0,${rng()*0.1})`;
-      c.fillRect(rng()*w, rng()*h, 1, 1);
-    }
-  } else if (type === 'stone_light' || type === 'stone_heavy') {
-    const intensity = type === 'stone_heavy' ? 0.3 : 0.15;
-    for (let i = 0; i < 20; i++) {
-      c.strokeStyle = `rgba(0,0,0,${rng()*intensity})`;
-      c.lineWidth = rng() * 2;
-      c.beginPath();
-      let cx = rng()*w, cy = rng()*h;
-      c.moveTo(cx, cy);
-      for (let j = 0; j < 5; j++) { cx += (rng()-0.5)*30; cy += (rng()-0.5)*30; c.lineTo(cx, cy); }
-      c.stroke();
-    }
-  } else if (type === 'hedge') {
-    for (let i = 0; i < 300; i++) {
-      const x = rng()*w, y = rng()*h;
-      const shade = 30 + rng()*40;
-      c.fillStyle = `rgb(${shade+30},${shade+80},${shade})`;
-      c.beginPath(); c.arc(x, y, 2+rng()*4, 0, Math.PI*2); c.fill();
-    }
-  } else if (type === 'dark_stone' || type === 'crypt') {
-    const dark = type === 'crypt' ? 0.5 : 0.35;
-    for (let i = 0; i < 40; i++) {
-      c.strokeStyle = `rgba(0,0,0,${rng()*dark})`;
-      c.lineWidth = rng()*3;
-      c.beginPath();
-      let cx = rng()*w, cy = rng()*h;
-      c.moveTo(cx, cy);
-      for (let j = 0; j < 8; j++) { cx += (rng()-0.5)*20; cy += (rng()-0.5)*20; c.lineTo(cx,cy); }
-      c.stroke();
-    }
-  } else if (type === 'stained_glass') {
-    const colors = ['#aa3040','#3060aa','#40a050','#ccaa30','#8040a0'];
-    for (let i = 0; i < 60; i++) {
-      c.fillStyle = colors[Math.floor(rng()*colors.length)];
-      c.globalAlpha = 0.15 + rng()*0.2;
-      c.beginPath(); c.arc(rng()*w, rng()*h, 5+rng()*15, 0, Math.PI*2); c.fill();
-    }
-  } else if (type === 'metal') {
-    for (let y2 = 0; y2 < h; y2 += 2) {
-      c.fillStyle = `rgba(${rng()>0.5?255:0},${rng()>0.5?255:0},${rng()>0.5?255:0},${rng()*0.05})`;
-      c.fillRect(0, y2, w, 2);
-    }
-  } else if (type === 'mirror') {
-    const grad = c.createLinearGradient(0,0,w,h);
-    grad.addColorStop(0, 'rgba(150,200,220,0.3)');
-    grad.addColorStop(1, 'rgba(100,150,180,0.3)');
-    c.fillStyle = grad; c.fillRect(0,0,w,h);
-  } else if (type === 'sacrum') {
-    const grad = c.createRadialGradient(w/2,h/2,0,w/2,h/2,w);
-    grad.addColorStop(0, 'rgba(255,240,200,0.3)');
-    grad.addColorStop(1, 'rgba(200,180,140,0.1)');
-    c.fillStyle = grad; c.fillRect(0,0,w,h);
-  }
-  return off;
-}
-
+// --- Gracz ---
 class Player {
-  constructor(x, y, size) {
-    this.x = x; this.y = y;
-    this.size = size;
-    this.targetX = x; this.targetY = y;
-    this.bobPhase = 0;
-    this.speed = 2.5;
-    this.moving = false;
-    this.radius = size * 0.3; // Promień kolizji
-  }
-
-  update(dt, collisionFn) {
-    const dx = this.targetX - this.x;
-    const dy = this.targetY - this.y;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-
-    if (dist > 1) {
-      this.moving = true;
-      const vx = (dx / dist) * this.speed;
-      const vy = (dy / dist) * this.speed;
-
-      // PRZEKORZYSTANIE KOLIZJI (Sliding Collision)
-      // Najpierw próbujemy przesunąć się o X
-      let nextX = this.x + vx;
-      if (!collisionFn(nextX, this.y, this.radius)) {
-        this.x = nextX;
-      } else {
-        // Jeśli ściana blokuje X, postać "ślizga się" wzdłuż niej
-        this.targetX = this.x; 
-      }
-
-      // Potem próbujemy przesunąć się o Y
-      let nextY = this.y + vy;
-      if (!collisionFn(this.x, nextY, this.radius)) {
-        this.y = nextY;
-      } else {
-        this.targetY = this.y;
-      }
-
-      this.bobPhase += 0.15;
-    } else {
-      this.moving = false;
+    constructor(cellSize) {
+        this.x = 0; this.y = 0;
+        this.targetX = 0; this.targetY = 0;
+        this.r = cellSize * 0.25; // Jeszcze mniejszy promień dla trudniejszych przejść
+        this.speed = 2.8;
     }
-  }
+    update(maze, cellSize) {
+        const dx = this.targetX - this.x, dy = this.targetY - this.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 1) return;
 
-  draw(ctx) {
-    const s = this.size;
-    const bob = this.moving ? Math.sin(this.bobPhase) * 3 : 0;
-    const legSwing = this.moving ? Math.sin(this.bobPhase) * 0.3 : 0;
-    const armSwing = this.moving ? Math.sin(this.bobPhase + Math.PI) * 0.25 : 0;
-    ctx.save();
-    ctx.translate(this.x, this.y + bob);
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';
-    ctx.beginPath(); ctx.ellipse(0, s * 0.48 - bob, s * 0.35, s * 0.08, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#d4b896';
-    ctx.save(); ctx.translate(-s*0.08, s*0.15); ctx.rotate(legSwing); ctx.fillRect(-s*0.05, 0, s*0.1, s*0.25); ctx.restore();
-    ctx.save(); ctx.translate(s*0.08, s*0.15); ctx.rotate(-legSwing); ctx.fillRect(-s*0.05, 0, s*0.1, s*0.25); ctx.restore();
-    ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = '#e0e0e0'; ctx.beginPath();
-    ctx.moveTo(-s*0.2, -s*0.2); ctx.lineTo(-s*0.25, s*0.2); ctx.lineTo(s*0.25, s*0.2); ctx.lineTo(s*0.2, -s*0.2);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#d4b896'; ctx.beginPath(); ctx.arc(0, -s*0.3, s*0.16, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.roundRect(-s*0.14, -s*0.36, s*0.12, s*0.08, 2); ctx.fill();
-    ctx.beginPath(); ctx.roundRect(s*0.02, -s*0.36, s*0.12, s*0.08, 2); ctx.fill();
-    ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.ellipse(0, -s*0.39, s*0.22, s*0.05, 0, 0, Math.PI*2); ctx.fill();
-    ctx.restore();
-  }
+        const vx = (dx / dist) * this.speed, vy = (dy / dist) * this.speed;
+
+        // Logika kolizji oparta na "ślizganiu" się po krawędziach komórek
+        if (!this.checkWall(this.x + vx, this.y, maze, cellSize)) this.x += vx;
+        if (!this.checkWall(this.x, this.y + vy, maze, cellSize)) this.y += vy;
+    }
+
+    checkWall(nx, ny, maze, cellSize) {
+        const buffer = this.r + 2; 
+        const points = [
+            {x: nx - buffer, y: ny - buffer}, {x: nx + buffer, y: ny - buffer},
+            {x: nx - buffer, y: ny + buffer}, {x: nx + buffer, y: ny + buffer}
+        ];
+
+        for (const p of points) {
+            const c = Math.floor(p.x / cellSize), r = Math.floor(p.y / cellSize);
+            if (r < 0 || r >= maze.rows || c < 0 || c >= maze.cols) return true;
+            
+            const cell = maze.grid[r][c];
+            const locX = p.x % cellSize, locY = p.y % cellSize;
+            const th = 4; // grubość progu kolizji
+
+            if (cell.walls[0] && locY < th) return true; // Góra
+            if (cell.walls[1] && locX > cellSize - th) return true; // Prawo
+            if (cell.walls[2] && locY > cellSize - th) return true; // Dół
+            if (cell.walls[3] && locX < th) return true; // Lewo
+        }
+        return false;
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        // Cień
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.beginPath(); ctx.ellipse(0, 5, this.r, this.r/2, 0, 0, Math.PI*2); ctx.fill();
+        // Szata
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(0, 0, this.r, 0, Math.PI*2); ctx.fill();
+        // Okulary
+        ctx.fillStyle = "#111"; ctx.fillRect(-this.r*0.6, -2, this.r*0.5, 3); ctx.fillRect(this.r*0.1, -2, this.r*0.5, 3);
+        // Czapka (Bucket Hat)
+        ctx.fillStyle = "#eee"; ctx.fillRect(-this.r, -this.r, this.r*2, 4); ctx.fillRect(-this.r*0.6, -this.r-4, this.r*1.2, 5);
+        ctx.restore();
+    }
 }
 
-class Checkpoint {
-  constructor(x, y) { this.x = x; this.y = y; this.lit = false; this.phase = Math.random() * Math.PI * 2; }
-  draw(ctx, time) {
-    const s = 10; ctx.save(); ctx.translate(this.x, this.y);
-    ctx.fillStyle = this.lit ? '#FFD700' : '#AA9060'; ctx.fillRect(-s*0.15, -s*0.3, s*0.3, s*0.6);
-    if (this.lit) {
-      const flicker = Math.sin(time * 8 + this.phase) * 2;
-      ctx.fillStyle = '#FF6600'; ctx.beginPath(); ctx.moveTo(-s*0.1, -s*0.3); ctx.quadraticCurveTo(0, -s*0.8 + flicker, s*0.1, -s*0.3); ctx.fill();
+// --- Silnik Gry ---
+class Game {
+    constructor() {
+        this.level = 0;
+        this.state = 'TITLE';
+        this.initLevel();
+        this.loop();
     }
-    ctx.restore();
-  }
+
+    initLevel() {
+        // Skalowanie trudności: więcej kolumn i wierszy na każdym poziomie
+        const difficulty = 8 + (this.level * 2); 
+        this.maze = new Maze(Math.floor(difficulty * 0.6), difficulty);
+        this.cellSize = canvas.width / (this.maze.cols + 1);
+        this.player = new Player(this.cellSize);
+        this.player.x = this.player.targetX = this.cellSize * 0.5;
+        this.player.y = this.player.targetY = this.cellSize * 0.5;
+        this.exit = { r: this.maze.rows - 1, c: this.maze.cols - 1 };
+    }
+
+    update() {
+        if (this.state === 'PLAYING') {
+            this.player.update(this.maze, this.cellSize);
+            const ex = (this.exit.c + 0.5) * this.cellSize, ey = (this.exit.r + 0.5) * this.cellSize;
+            if (Math.hypot(this.player.x - ex, this.player.y - ey) < 15) {
+                this.level++;
+                if (this.level >= 10) this.state = 'WIN';
+                else this.initLevel();
+            }
+        }
+    }
+
+    draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const ld = LEVEL_DATA[this.level] || LEVEL_DATA[0];
+
+        if (this.state === 'TITLE') {
+            this.drawOverlay("Wprowadź Mnie Panie", "Dotknij, by zacząć");
+            return;
+        }
+
+        // Kamera (centrowanie na graczu)
+        const scale = 1.5;
+        ctx.save();
+        ctx.translate(canvas.width/2 - this.player.x * scale, canvas.height/2 - this.player.y * scale);
+        ctx.scale(scale, scale);
+
+        // Rysowanie Labiryntu
+        ctx.fillStyle = ld.floor;
+        ctx.fillRect(0, 0, this.maze.cols * this.cellSize, this.maze.rows * this.cellSize);
+
+        ctx.strokeStyle = ld.wall; ctx.lineWidth = 6; ctx.lineCap = "round";
+        for (let r = 0; r < this.maze.rows; r++) {
+            for (let c = 0; c < this.maze.cols; c++) {
+                const x = c * this.cellSize, y = r * this.cellSize, s = this.cellSize;
+                const walls = this.maze.grid[r][c].walls;
+                if (walls[0]) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + s, y); ctx.stroke(); }
+                if (walls[1]) { ctx.beginPath(); ctx.moveTo(x + s, y); ctx.lineTo(x + s, y + s); ctx.stroke(); }
+                if (walls[2]) { ctx.beginPath(); ctx.moveTo(x, y + s); ctx.lineTo(x + s, y + s); ctx.stroke(); }
+                if (walls[3]) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + s); ctx.stroke(); }
+            }
+        }
+
+        // Wyjście
+        ctx.fillStyle = "gold"; ctx.font = "20px serif"; ctx.textAlign = "center";
+        ctx.fillText("✦", (this.exit.c + 0.5) * this.cellSize, (this.exit.r + 0.5) * this.cellSize + 7);
+
+        this.player.draw(ctx);
+        ctx.restore();
+
+        // Fog of War
+        if (ld.fog > 0) {
+            const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 20, canvas.width/2, canvas.height/2, ld.fog);
+            grad.addColorStop(0, "transparent"); grad.addColorStop(1, "black");
+            ctx.fillStyle = grad; ctx.fillRect(0,0,canvas.width, canvas.height);
+        }
+
+        // HUD
+        ctx.fillStyle = "#fff"; ctx.font = "bold 14px Georgia"; ctx.textAlign = "left";
+        ctx.fillText(`${ld.name} (${this.level + 1}/10)`, 20, 30);
+    }
+
+    drawOverlay(t1, t2) {
+        ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.fillRect(0,0,canvas.width, canvas.height);
+        ctx.fillStyle = "gold"; ctx.textAlign = "center";
+        ctx.font = "bold 24px Georgia"; ctx.fillText(t1, canvas.width/2, canvas.height/2 - 20);
+        ctx.font = "14px Georgia"; ctx.fillStyle = "#fff"; ctx.fillText(t2, canvas.width/2, canvas.height/2 + 20);
+    }
+
+    loop() {
+        this.update(); this.draw();
+        requestAnimationFrame(() => this.loop());
+    }
 }
 
-class LevelManager {
-  constructor() {
-    this.currentLevel = 0; this.state = 'title'; this.transitionAlpha = 0; this.transitionDir = 0;
-    this.mazeMap = null; this.mazeWidth = 0; this.mazeHeight = 0; this.wallTexture = null;
-    this.player = null; this.checkpoints = []; this.exitX = 0; this.exitY = 0;
-    this.levelStartTime = 0; this.levelTimes = [];
-  }
+const game = new Game();
 
-  getMazeConfig(level) {
-    const configs = [
-      { cols: 5, rows: 7, cellSize: 50, wallThickness: 12 },
-      { cols: 6, rows: 9, cellSize: 45, wallThickness: 11 },
-      { cols: 7, rows: 11, cellSize: 40, wallThickness: 10 },
-      { cols: 8, rows: 13, cellSize: 38, wallThickness: 9 },
-      { cols: 10, rows: 15, cellSize: 35, wallThickness: 8 },
-      { cols: 11, rows: 17, cellSize: 32, wallThickness: 8 },
-      { cols: 12, rows: 19, cellSize: 30, wallThickness: 7 },
-      { cols: 14, rows: 22, cellSize: 28, wallThickness: 7 },
-      { cols: 15, rows: 25, cellSize: 26, wallThickness: 6 },
-      { cols: 16, rows: 35, cellSize: 24, wallThickness: 6 },
-    ];
-    return configs[level];
-  }
-
-  loadLevel(level) {
-    const cfg = this.getMazeConfig(level);
-    const maze = new MazeGenerator(cfg.cols, cfg.rows);
-    const result = maze.toPixelMap(cfg.cellSize, cfg.wallThickness);
-    this.mazeMap = result.map;
-    this.mazeWidth = result.width;
-    this.mazeHeight = result.height;
-    const ld = LEVEL_DATA[level];
-    this.wallTexture = generateWallTexture(ld.wallTex, this.mazeWidth, this.mazeHeight, ld.wallColor);
-    const startX = cfg.wallThickness + (cfg.cellSize - cfg.wallThickness) * 0.5;
-    const startY = cfg.wallThickness + (cfg.cellSize - cfg.wallThickness) * 0.5;
-    this.player = new Player(startX, startY, Math.min(cfg.cellSize * 0.7, 30));
-    this.player.speed = Math.max(1.8, 3 - level * 0.05);
-    this.exitX = cfg.wallThickness + (cfg.cols - 1) * cfg.cellSize + (cfg.cellSize - cfg.wallThickness) * 0.5;
-    this.exitY = cfg.wallThickness + (cfg.rows - 1) * cfg.cellSize + (cfg.cellSize - cfg.wallThickness) * 0.5;
-    this.checkpoints = [];
-    if (level >= 4) {
-       for(let i=0; i<3; i++) {
-         const r = Math.floor(cfg.rows/2), c = Math.floor(cfg.cols/2);
-         this.checkpoints.push(new Checkpoint(c*cfg.cellSize + cfg.cellSize/2, r*cfg.cellSize + cfg.cellSize/2));
-       }
-    }
-    this.levelStartTime = performance.now() / 1000;
-  }
-
-  checkCollision(px, py, radius) {
-    // Sprawdzamy 8 punktów wokół gracza dla lepszej precyzji
-    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
-      const cx = Math.floor(px + Math.cos(angle) * radius);
-      const cy = Math.floor(py + Math.sin(angle) * radius);
-      if (cx < 0 || cy < 0 || cx >= this.mazeWidth || cy >= this.mazeHeight) return true;
-      if (this.mazeMap[cy][cx] === 1) return true;
-    }
-    return false;
-  }
-
-  update(dt, touchX, touchY, touching) {
-    if (this.state === 'playing' && touching) {
-      const scale = Math.min(canvas.width / 180, canvas.height / 320);
-      const worldX = (touchX - (canvas.width/2)) / scale + this.player.x;
-      const worldY = (touchY - (canvas.height/2)) / scale + this.player.y;
-      this.player.targetX = worldX;
-      this.player.targetY = worldY;
-    }
-    if (this.state === 'playing') {
-      this.player.update(dt, (x, y, r) => this.checkCollision(x, y, r));
-      const dExit = Math.hypot(this.player.x - this.exitX, this.player.y - this.exitY);
-      if (dExit < 15) this.nextLevel();
-    }
-    if (this.state === 'transition') {
-      this.transitionAlpha += this.transitionDir * dt * 2;
-      if (this.transitionAlpha >= 1 && this.transitionDir === 1) {
-        this.loadLevel(this.currentLevel);
-        this.transitionDir = -1;
-      } else if (this.transitionAlpha <= 0 && this.transitionDir === -1) {
-        this.state = 'playing';
-      }
-    }
-  }
-
-  nextLevel() {
-    this.levelTimes.push(performance.now()/1000 - this.levelStartTime);
-    this.currentLevel++;
-    if (this.currentLevel >= 10) this.state = 'win';
-    else { this.state = 'transition'; this.transitionAlpha = 0; this.transitionDir = 1; }
-  }
-
-  drawHUD(ctx, cw, ch) {
-    const ld = LEVEL_DATA[this.currentLevel];
-    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, cw, 60);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Georgia'; ctx.textAlign = 'left';
-    ctx.fillText(ld.name, 15, 25);
-    ctx.font = '12px Georgia'; ctx.fillStyle = '#aaa'; ctx.fillText(ld.sub, 15, 45);
-  }
-
-  drawTitle(ctx, cw, ch) {
-    ctx.fillStyle = '#1a1520'; ctx.fillRect(0,0,cw,ch);
-    ctx.fillStyle = '#f0e8d0'; ctx.font = 'bold 30px Georgia'; ctx.textAlign = 'center';
-    ctx.fillText('Wprowadź', cw/2, ch*0.3); ctx.fillText('Mnie Panie', cw/2, ch*0.4);
-    ctx.font = '16px Georgia'; ctx.fillText('Dotknij by zacząć', cw/2, ch*0.8);
-  }
-
-  drawWin(ctx, cw, ch) {
-    ctx.fillStyle = '#fffbe8'; ctx.fillRect(0,0,cw,ch);
-    ctx.fillStyle = '#5a4a2a'; ctx.font = 'bold 24px Georgia'; ctx.textAlign = 'center';
-    ctx.fillText('WPROWADZONY', cw/2, ch*0.5);
-  }
-}
-
-const game = new LevelManager();
-let lastTime = performance.now();
-let isTouching = false, touchX = 0, touchY = 0;
-let mazeCanvas = null, lastMazeLvl = -1;
-
-function renderMaze(game) {
-  mazeCanvas = document.createElement('canvas');
-  mazeCanvas.width = game.mazeWidth; mazeCanvas.height = game.mazeHeight;
-  const mc = mazeCanvas.getContext('2d');
-  mc.drawImage(game.wallTexture, 0, 0);
-  mc.globalCompositeOperation = 'destination-out';
-  for(let y=0; y<game.mazeHeight; y++) {
-    for(let x=0; x<game.mazeWidth; x++) {
-      if(game.mazeMap[y][x] === 0) mc.fillRect(x, y, 1, 1);
-    }
-  }
-  lastMazeLvl = game.currentLevel;
-}
-
-function gameLoop() {
-  const now = performance.now();
-  const dt = Math.min((now - lastTime) / 1000, 0.05);
-  lastTime = now;
-  game.update(dt, touchX, touchY, isTouching);
-  ctx.fillStyle = '#000'; ctx.fillRect(0,0,canvas.width, canvas.height);
-
-  if (game.state === 'title') game.drawTitle(ctx, canvas.width, canvas.height);
-  else if (game.state === 'win') game.drawWin(ctx, canvas.width, canvas.height);
-  else if (game.player) {
-    if (lastMazeLvl !== game.currentLevel) renderMaze(game);
-    const scale = Math.min(canvas.width / 180, canvas.height / 320);
-    ctx.save();
-    ctx.translate(canvas.width/2, canvas.height/2);
-    ctx.scale(scale, scale);
-    ctx.translate(-game.player.x, -game.player.y);
-    ctx.fillStyle = LEVEL_DATA[game.currentLevel].floorColor;
-    ctx.fillRect(0,0,game.mazeWidth, game.mazeHeight);
-    ctx.drawImage(mazeCanvas, 0, 0);
-    ctx.fillStyle = 'gold'; ctx.fillText('✦', game.exitX, game.exitY);
-    game.player.draw(ctx);
-    ctx.restore();
-    
-    // FOG
-    const ld = LEVEL_DATA[game.currentLevel];
-    if (ld.fogRadius > 0) {
-        const fog = document.createElement('canvas');
-        fog.width = canvas.width; fog.height = canvas.height;
-        const fc = fog.getContext('2d');
-        fc.fillStyle = `rgba(0,0,0,${1-ld.ambient})`;
-        fc.fillRect(0,0,canvas.width, canvas.height);
-        fc.globalCompositeOperation = 'destination-out';
-        const grad = fc.createRadialGradient(canvas.width/2, canvas.height/2, 20, canvas.width/2, canvas.height/2, ld.fogRadius*scale);
-        grad.addColorStop(0, 'white'); grad.addColorStop(1, 'transparent');
-        fc.fillStyle = grad; fc.beginPath(); fc.arc(canvas.width/2, canvas.height/2, ld.fogRadius*scale, 0, Math.PI*2); fc.fill();
-        ctx.drawImage(fog, 0, 0);
-    }
-    game.drawHUD(ctx, canvas.width, canvas.height);
-  }
-
-  if (game.state === 'transition') {
-    ctx.fillStyle = `rgba(255,255,255,${game.transitionAlpha})`;
-    ctx.fillRect(0,0,canvas.width, canvas.height);
-  }
-  requestAnimationFrame(gameLoop);
-}
-
-canvas.addEventListener('mousedown', (e) => { 
+// --- Sterowanie ---
+function handleInput(e) {
+    if (game.state !== 'PLAYING') { game.state = 'PLAYING'; return; }
     const rect = canvas.getBoundingClientRect();
-    touchX = (e.clientX - rect.left) * (canvas.width/rect.width);
-    touchY = (e.clientY - rect.top) * (canvas.height/rect.height);
-    isTouching = true; 
-    if(game.state !== 'playing') game.state === 'win' ? game.state='title' : game.loadLevel(0), game.state='playing';
+    const touch = e.touches ? e.touches[0] : e;
+    const scale = 1.5;
+    // Konwersja ekran -> świat gry
+    game.player.targetX = (touch.clientX - rect.left - canvas.width/2) / scale + game.player.x;
+    game.player.targetY = (touch.clientY - rect.top - canvas.height/2) / scale + game.player.y;
+}
+
+canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(e); }, {passive: false});
+canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handleInput(e); }, {passive: false});
+canvas.addEventListener('mousedown', handleInput);
+
+document.getElementById('fullscreenBtn').addEventListener('click', () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
 });
-canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    touchX = (e.clientX - rect.left) * (canvas.width/rect.width);
-    touchY = (e.clientY - rect.top) * (canvas.height/rect.height);
-});
-canvas.addEventListener('mouseup', () => isTouching = false);
-
-canvas.addEventListener('touchstart', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    touchX = (e.touches[0].clientX - rect.left) * (canvas.width/rect.width);
-    touchY = (e.touches[0].clientY - rect.top) * (canvas.height/rect.height);
-    isTouching = true;
-    if(game.state !== 'playing') game.state === 'win' ? game.state='title' : game.loadLevel(0), game.state='playing';
-}, {passive: false});
-canvas.addEventListener('touchmove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    touchX = (e.touches[0].clientX - rect.left) * (canvas.width/rect.width);
-    touchY = (e.touches[0].clientY - rect.top) * (canvas.height/rect.height);
-}, {passive: false});
-canvas.addEventListener('touchend', () => isTouching = false);
-
-requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
