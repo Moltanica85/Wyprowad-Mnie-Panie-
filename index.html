@@ -1,48 +1,5 @@
-<!DOCTYPE html>
-<html lang="pl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Wprowadź Mnie Panie</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body {
-  width: 100%; height: 100%;
-  background: #000;
-  overflow: hidden;
-  touch-action: none;
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-  font-family: 'Georgia', serif;
-}
-#gameCanvas {
-  display: block;
-  margin: 0 auto;
-  background: #111;
-}
-#fullscreenBtn {
-  position: fixed;
-  top: 10px; right: 10px;
-  z-index: 100;
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.3);
-  color: #fff;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-}
-#fullscreenBtn:active { background: rgba(255,255,255,0.3); }
-</style>
-</head>
-<body>
-<canvas id="gameCanvas"></canvas>
-<button id="fullscreenBtn">⛶ Fullscreen</button>
-<script>
 // ============================================================
-// "Wprowadź Mnie Panie" — Full 10-Level Maze Game
+// "Wprowadź Mnie Panie" — Naprawiony System Kolizji
 // ============================================================
 
 const canvas = document.getElementById('gameCanvas');
@@ -75,9 +32,6 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// ==========================================================
-// LEVEL DATA — names, colors, themes
-// ==========================================================
 const LEVEL_DATA = [
   { name: "Dziedziniec", sub: "Poziom 1", wallColor: "#d4c9a8", floorColor: "#f5f0e0", fogRadius: 0, wallTex: "sand", ambient: 1.0 },
   { name: "Krużganki", sub: "Poziom 2", wallColor: "#b8a88a", floorColor: "#e8e0d0", fogRadius: 0, wallTex: "stone_light", ambient: 0.95 },
@@ -91,147 +45,96 @@ const LEVEL_DATA = [
   { name: "Sacrum", sub: "Poziom 10", wallColor: "#f0e8d0", floorColor: "#201818", fogRadius: 100, wallTex: "sacrum", ambient: 0.15 }
 ];
 
-// ==========================================================
-// MAZE GENERATOR — Recursive Backtracker
-// ==========================================================
 class MazeGenerator {
   constructor(cols, rows) {
-    this.cols = cols;
-    this.rows = rows;
-    this.grid = [];
-    this.generate();
+    this.cols = cols; this.rows = rows;
+    this.grid = []; this.generate();
   }
   generate() {
-    const { cols, rows } = this;
-    // Init grid: each cell has walls: top, right, bottom, left
-    for (let i = 0; i < rows; i++) {
+    for (let i = 0; i < this.rows; i++) {
       this.grid[i] = [];
-      for (let j = 0; j < cols; j++) {
+      for (let j = 0; j < this.cols; j++) {
         this.grid[i][j] = { top: true, right: true, bottom: true, left: true, visited: false };
       }
     }
-    // Recursive backtracker
     const stack = [];
     let cur = { r: 0, c: 0 };
     this.grid[0][0].visited = true;
     stack.push(cur);
-
     while (stack.length > 0) {
       const neighbors = [];
       const { r, c } = cur;
       if (r > 0 && !this.grid[r-1][c].visited) neighbors.push({ r: r-1, c, dir: 'top' });
-      if (r < rows-1 && !this.grid[r+1][c].visited) neighbors.push({ r: r+1, c, dir: 'bottom' });
+      if (r < this.rows-1 && !this.grid[r+1][c].visited) neighbors.push({ r: r+1, c, dir: 'bottom' });
       if (c > 0 && !this.grid[r][c-1].visited) neighbors.push({ r, c: c-1, dir: 'left' });
-      if (c < cols-1 && !this.grid[r][c+1].visited) neighbors.push({ r, c: c+1, dir: 'right' });
-
+      if (c < this.cols-1 && !this.grid[r][c+1].visited) neighbors.push({ r, c: c+1, dir: 'right' });
       if (neighbors.length > 0) {
         const next = neighbors[Math.floor(Math.random() * neighbors.length)];
-        // Remove walls
         if (next.dir === 'top') { this.grid[r][c].top = false; this.grid[next.r][next.c].bottom = false; }
         if (next.dir === 'bottom') { this.grid[r][c].bottom = false; this.grid[next.r][next.c].top = false; }
         if (next.dir === 'left') { this.grid[r][c].left = false; this.grid[next.r][next.c].right = false; }
         if (next.dir === 'right') { this.grid[r][c].right = false; this.grid[next.r][next.c].left = false; }
         this.grid[next.r][next.c].visited = true;
-        stack.push(cur);
-        cur = next;
-      } else {
-        cur = stack.pop();
-      }
+        stack.push(cur); cur = next;
+      } else { cur = stack.pop(); }
     }
   }
-  // Build a 2D pixel map (0 = floor, 1 = wall)
   toPixelMap(cellSize, wallThickness) {
     const mapW = this.cols * cellSize + wallThickness;
     const mapH = this.rows * cellSize + wallThickness;
     const map = [];
     for (let y = 0; y < mapH; y++) {
       map[y] = [];
-      for (let x = 0; x < mapW; x++) map[y][x] = 1; // default wall
+      for (let x = 0; x < mapW; x++) map[y][x] = 1;
     }
-    // Carve cells and passages
     for (let r = 0; r < this.rows; r++) {
       for (let c = 0; c < this.cols; c++) {
         const cell = this.grid[r][c];
         const x0 = wallThickness + c * cellSize;
         const y0 = wallThickness + r * cellSize;
         const cw = cellSize - wallThickness;
-        // Carve cell interior
         for (let y = y0; y < y0 + cw; y++)
           for (let x = x0; x < x0 + cw; x++)
             if (y >= 0 && y < mapH && x >= 0 && x < mapW) map[y][x] = 0;
-        // Carve passages
-        if (!cell.top) {
-          for (let y = y0 - wallThickness; y < y0; y++)
-            for (let x = x0; x < x0 + cw; x++)
-              if (y >= 0 && y < mapH && x >= 0 && x < mapW) map[y][x] = 0;
-        }
-        if (!cell.bottom) {
-          for (let y = y0 + cw; y < y0 + cw + wallThickness; y++)
-            for (let x = x0; x < x0 + cw; x++)
-              if (y >= 0 && y < mapH && x >= 0 && x < mapW) map[y][x] = 0;
-        }
-        if (!cell.left) {
-          for (let y = y0; y < y0 + cw; y++)
-            for (let x = x0 - wallThickness; x < x0; x++)
-              if (y >= 0 && y < mapH && x >= 0 && x < mapW) map[y][x] = 0;
-        }
-        if (!cell.right) {
-          for (let y = y0; y < y0 + cw; y++)
-            for (let x = x0 + cw; x < x0 + cw + wallThickness; x++)
-              if (y >= 0 && y < mapH && x >= 0 && x < mapW) map[y][x] = 0;
-        }
+        if (!cell.top) for (let y = y0 - wallThickness; y < y0; y++) for (let x = x0; x < x0 + cw; x++) map[y][x] = 0;
+        if (!cell.bottom) for (let y = y0 + cw; y < y0 + cw + wallThickness; y++) for (let x = x0; x < x0 + cw; x++) map[y][x] = 0;
+        if (!cell.left) for (let y = y0; y < y0 + cw; y++) for (let x = x0 - wallThickness; x < x0; x++) map[y][x] = 0;
+        if (!cell.right) for (let y = y0; y < y0 + cw; y++) for (let x = x0 + cw; x < x0 + cw + wallThickness; x++) map[y][x] = 0;
       }
     }
     return { map, width: mapW, height: mapH };
   }
 }
 
-// ==========================================================
-// TEXTURE GENERATOR — procedural textures for walls
-// ==========================================================
 function generateWallTexture(type, w, h, baseColor) {
   const off = document.createElement('canvas');
   off.width = w; off.height = h;
   const c = off.getContext('2d');
   c.fillStyle = baseColor;
   c.fillRect(0, 0, w, h);
-
   const rng = () => Math.random();
-
   if (type === 'sand') {
     for (let i = 0; i < w * h * 0.05; i++) {
-      const x = rng() * w, y = rng() * h;
       c.fillStyle = `rgba(0,0,0,${rng()*0.1})`;
-      c.fillRect(x, y, 1, 1);
+      c.fillRect(rng()*w, rng()*h, 1, 1);
     }
   } else if (type === 'stone_light' || type === 'stone_heavy') {
     const intensity = type === 'stone_heavy' ? 0.3 : 0.15;
-    // Cracks
     for (let i = 0; i < 20; i++) {
       c.strokeStyle = `rgba(0,0,0,${rng()*intensity})`;
       c.lineWidth = rng() * 2;
       c.beginPath();
       let cx = rng()*w, cy = rng()*h;
       c.moveTo(cx, cy);
-      for (let j = 0; j < 5; j++) {
-        cx += (rng()-0.5)*30; cy += (rng()-0.5)*30;
-        c.lineTo(cx, cy);
-      }
+      for (let j = 0; j < 5; j++) { cx += (rng()-0.5)*30; cy += (rng()-0.5)*30; c.lineTo(cx, cy); }
       c.stroke();
-    }
-    // Grain
-    for (let i = 0; i < w*h*0.08; i++) {
-      c.fillStyle = `rgba(0,0,0,${rng()*intensity})`;
-      c.fillRect(rng()*w, rng()*h, rng()*2, rng()*2);
     }
   } else if (type === 'hedge') {
     for (let i = 0; i < 300; i++) {
       const x = rng()*w, y = rng()*h;
       const shade = 30 + rng()*40;
       c.fillStyle = `rgb(${shade+30},${shade+80},${shade})`;
-      c.beginPath();
-      c.arc(x, y, 2+rng()*4, 0, Math.PI*2);
-      c.fill();
+      c.beginPath(); c.arc(x, y, 2+rng()*4, 0, Math.PI*2); c.fill();
     }
   } else if (type === 'dark_stone' || type === 'crypt') {
     const dark = type === 'crypt' ? 0.5 : 0.35;
@@ -244,15 +147,6 @@ function generateWallTexture(type, w, h, baseColor) {
       for (let j = 0; j < 8; j++) { cx += (rng()-0.5)*20; cy += (rng()-0.5)*20; c.lineTo(cx,cy); }
       c.stroke();
     }
-    // Moss patches
-    for (let i = 0; i < 50; i++) {
-      c.fillStyle = `rgba(40,${80+rng()*60},30,${rng()*0.3})`;
-      c.beginPath(); c.arc(rng()*w, rng()*h, rng()*5, 0, Math.PI*2); c.fill();
-    }
-    for (let i = 0; i < w*h*0.1; i++) {
-      c.fillStyle = `rgba(0,0,0,${rng()*dark})`;
-      c.fillRect(rng()*w, rng()*h, 1, 1);
-    }
   } else if (type === 'stained_glass') {
     const colors = ['#aa3040','#3060aa','#40a050','#ccaa30','#8040a0'];
     for (let i = 0; i < 60; i++) {
@@ -260,51 +154,25 @@ function generateWallTexture(type, w, h, baseColor) {
       c.globalAlpha = 0.15 + rng()*0.2;
       c.beginPath(); c.arc(rng()*w, rng()*h, 5+rng()*15, 0, Math.PI*2); c.fill();
     }
-    c.globalAlpha = 1;
-    for (let i = 0; i < w*h*0.03; i++) {
-      c.fillStyle = `rgba(0,0,0,${rng()*0.2})`;
-      c.fillRect(rng()*w, rng()*h, 1, 1);
-    }
   } else if (type === 'metal') {
     for (let y2 = 0; y2 < h; y2 += 2) {
       c.fillStyle = `rgba(${rng()>0.5?255:0},${rng()>0.5?255:0},${rng()>0.5?255:0},${rng()*0.05})`;
       c.fillRect(0, y2, w, 2);
     }
-    for (let i = 0; i < 15; i++) {
-      c.fillStyle = `rgba(100,90,70,${rng()*0.3})`;
-      c.beginPath(); c.arc(rng()*w, rng()*h, rng()*8, 0, Math.PI*2); c.fill();
-    }
   } else if (type === 'mirror') {
     const grad = c.createLinearGradient(0,0,w,h);
     grad.addColorStop(0, 'rgba(150,200,220,0.3)');
-    grad.addColorStop(0.5, 'rgba(255,255,255,0.2)');
     grad.addColorStop(1, 'rgba(100,150,180,0.3)');
-    c.fillStyle = grad;
-    c.fillRect(0,0,w,h);
-    for (let i = 0; i < 20; i++) {
-      c.strokeStyle = `rgba(255,255,255,${rng()*0.3})`;
-      c.lineWidth = 1;
-      c.beginPath();
-      c.moveTo(rng()*w, 0); c.lineTo(rng()*w, h);
-      c.stroke();
-    }
+    c.fillStyle = grad; c.fillRect(0,0,w,h);
   } else if (type === 'sacrum') {
     const grad = c.createRadialGradient(w/2,h/2,0,w/2,h/2,w);
     grad.addColorStop(0, 'rgba(255,240,200,0.3)');
     grad.addColorStop(1, 'rgba(200,180,140,0.1)');
-    c.fillStyle = grad;
-    c.fillRect(0,0,w,h);
-    for (let i = 0; i < w*h*0.06; i++) {
-      c.fillStyle = `rgba(255,230,180,${rng()*0.15})`;
-      c.fillRect(rng()*w, rng()*h, 1, 1);
-    }
+    c.fillStyle = grad; c.fillRect(0,0,w,h);
   }
   return off;
 }
 
-// ==========================================================
-// PLAYER CLASS
-// ==========================================================
 class Player {
   constructor(x, y, size) {
     this.x = x; this.y = y;
@@ -313,259 +181,99 @@ class Player {
     this.bobPhase = 0;
     this.speed = 2.5;
     this.moving = false;
+    this.radius = size * 0.3; // Promień kolizji
   }
+
   update(dt, collisionFn) {
     const dx = this.targetX - this.x;
     const dy = this.targetY - this.y;
     const dist = Math.sqrt(dx*dx + dy*dy);
 
-    if (dist > 2) {
+    if (dist > 1) {
       this.moving = true;
       const vx = (dx / dist) * this.speed;
       const vy = (dy / dist) * this.speed;
 
-      // Try X
-      let newX = this.x + vx;
-      if (!collisionFn(newX, this.y, this.size * 0.35)) {
-        this.x = newX;
+      // PRZEKORZYSTANIE KOLIZJI (Sliding Collision)
+      // Najpierw próbujemy przesunąć się o X
+      let nextX = this.x + vx;
+      if (!collisionFn(nextX, this.y, this.radius)) {
+        this.x = nextX;
+      } else {
+        // Jeśli ściana blokuje X, postać "ślizga się" wzdłuż niej
+        this.targetX = this.x; 
       }
-      // Try Y
-      let newY = this.y + vy;
-      if (!collisionFn(this.x, newY, this.size * 0.35)) {
-        this.y = newY;
+
+      // Potem próbujemy przesunąć się o Y
+      let nextY = this.y + vy;
+      if (!collisionFn(this.x, nextY, this.radius)) {
+        this.y = nextY;
+      } else {
+        this.targetY = this.y;
       }
+
       this.bobPhase += 0.15;
     } else {
       this.moving = false;
     }
   }
+
   draw(ctx) {
     const s = this.size;
     const bob = this.moving ? Math.sin(this.bobPhase) * 3 : 0;
     const legSwing = this.moving ? Math.sin(this.bobPhase) * 0.3 : 0;
     const armSwing = this.moving ? Math.sin(this.bobPhase + Math.PI) * 0.25 : 0;
-
     ctx.save();
     ctx.translate(this.x, this.y + bob);
-
-    // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.2)';
-    ctx.beginPath();
-    ctx.ellipse(0, s * 0.48 - bob, s * 0.35, s * 0.08, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Legs
-    ctx.save();
-    // Left leg
-    ctx.save();
-    ctx.translate(-s*0.08, s*0.15);
-    ctx.rotate(legSwing);
+    ctx.beginPath(); ctx.ellipse(0, s * 0.48 - bob, s * 0.35, s * 0.08, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#d4b896';
-    ctx.fillRect(-s*0.05, 0, s*0.1, s*0.25);
-    // Sandal
-    ctx.fillStyle = '#8B7355';
-    ctx.fillRect(-s*0.07, s*0.22, s*0.14, s*0.05);
-    ctx.restore();
-    // Right leg
-    ctx.save();
-    ctx.translate(s*0.08, s*0.15);
-    ctx.rotate(-legSwing);
-    ctx.fillStyle = '#d4b896';
-    ctx.fillRect(-s*0.05, 0, s*0.1, s*0.25);
-    ctx.fillStyle = '#8B7355';
-    ctx.fillRect(-s*0.07, s*0.22, s*0.14, s*0.05);
-    ctx.restore();
-    ctx.restore();
-
-    // Robe (body)
-    ctx.fillStyle = '#FFFFFF';
-    ctx.strokeStyle = '#e0e0e0';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(-s*0.2, -s*0.2);
-    ctx.lineTo(-s*0.25, s*0.2);
-    ctx.lineTo(s*0.25, s*0.2);
-    ctx.lineTo(s*0.2, -s*0.2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Arms
-    ctx.save();
-    // Left arm
-    ctx.save();
-    ctx.translate(-s*0.22, -s*0.1);
-    ctx.rotate(armSwing);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.strokeStyle = '#e0e0e0';
-    ctx.fillRect(-s*0.06, 0, s*0.1, s*0.22);
-    ctx.strokeRect(-s*0.06, 0, s*0.1, s*0.22);
-    // Hand
-    ctx.fillStyle = '#d4b896';
-    ctx.beginPath(); ctx.arc(s*-0.01, s*0.24, s*0.04, 0, Math.PI*2); ctx.fill();
-    ctx.restore();
-    // Right arm
-    ctx.save();
-    ctx.translate(s*0.22, -s*0.1);
-    ctx.rotate(-armSwing);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.strokeStyle = '#e0e0e0';
-    ctx.fillRect(-s*0.04, 0, s*0.1, s*0.22);
-    ctx.strokeRect(-s*0.04, 0, s*0.1, s*0.22);
-    ctx.fillStyle = '#d4b896';
-    ctx.beginPath(); ctx.arc(s*0.01, s*0.24, s*0.04, 0, Math.PI*2); ctx.fill();
-    ctx.restore();
-    ctx.restore();
-
-    // Head
-    ctx.fillStyle = '#d4b896';
-    ctx.beginPath();
-    ctx.arc(0, -s*0.3, s*0.16, 0, Math.PI*2);
-    ctx.fill();
-
-    // Beard
-    ctx.fillStyle = '#1a1a1a';
-    ctx.beginPath();
-    ctx.moveTo(-s*0.12, -s*0.22);
-    ctx.quadraticCurveTo(-s*0.14, -s*0.08, -s*0.06, -s*0.05);
-    ctx.lineTo(0, -s*0.02);
-    ctx.lineTo(s*0.06, -s*0.05);
-    ctx.quadraticCurveTo(s*0.14, -s*0.08, s*0.12, -s*0.22);
-    ctx.closePath();
-    ctx.fill();
-
-    // Sunglasses (Ray-Ban style)
-    ctx.fillStyle = '#111';
-    // Left lens
-    ctx.beginPath();
-    ctx.roundRect(-s*0.14, -s*0.36, s*0.12, s*0.08, 2);
-    ctx.fill();
-    // Right lens
-    ctx.beginPath();
-    ctx.roundRect(s*0.02, -s*0.36, s*0.12, s*0.08, 2);
-    ctx.fill();
-    // Bridge
-    ctx.strokeStyle = '#111';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-s*0.02, -s*0.33);
-    ctx.lineTo(s*0.02, -s*0.33);
-    ctx.stroke();
-    // Temples
-    ctx.beginPath();
-    ctx.moveTo(-s*0.14, -s*0.33);
-    ctx.lineTo(-s*0.17, -s*0.35);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(s*0.14, -s*0.33);
-    ctx.lineTo(s*0.17, -s*0.35);
-    ctx.stroke();
-    // Lens glare
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.fillRect(-s*0.12, -s*0.36, s*0.04, s*0.03);
-    ctx.fillRect(s*0.04, -s*0.36, s*0.04, s*0.03);
-
-    // Bucket Hat
-    ctx.fillStyle = '#FFFFFF';
-    ctx.strokeStyle = '#ddd';
-    ctx.lineWidth = 1;
-    // Hat brim
-    ctx.beginPath();
-    ctx.ellipse(0, -s*0.39, s*0.22, s*0.05, 0, 0, Math.PI*2);
-    ctx.fill();
-    ctx.stroke();
-    // Hat crown
-    ctx.beginPath();
-    ctx.moveTo(-s*0.16, -s*0.39);
-    ctx.quadraticCurveTo(-s*0.17, -s*0.55, -s*0.1, -s*0.56);
-    ctx.lineTo(s*0.1, -s*0.56);
-    ctx.quadraticCurveTo(s*0.17, -s*0.55, s*0.16, -s*0.39);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
+    ctx.save(); ctx.translate(-s*0.08, s*0.15); ctx.rotate(legSwing); ctx.fillRect(-s*0.05, 0, s*0.1, s*0.25); ctx.restore();
+    ctx.save(); ctx.translate(s*0.08, s*0.15); ctx.rotate(-legSwing); ctx.fillRect(-s*0.05, 0, s*0.1, s*0.25); ctx.restore();
+    ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = '#e0e0e0'; ctx.beginPath();
+    ctx.moveTo(-s*0.2, -s*0.2); ctx.lineTo(-s*0.25, s*0.2); ctx.lineTo(s*0.25, s*0.2); ctx.lineTo(s*0.2, -s*0.2);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#d4b896'; ctx.beginPath(); ctx.arc(0, -s*0.3, s*0.16, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.roundRect(-s*0.14, -s*0.36, s*0.12, s*0.08, 2); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(s*0.02, -s*0.36, s*0.12, s*0.08, 2); ctx.fill();
+    ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.ellipse(0, -s*0.39, s*0.22, s*0.05, 0, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   }
 }
 
-// ==========================================================
-// CHECKPOINT (Candle)
-// ==========================================================
 class Checkpoint {
-  constructor(x, y) {
-    this.x = x; this.y = y;
-    this.lit = false;
-    this.phase = Math.random() * Math.PI * 2;
-  }
+  constructor(x, y) { this.x = x; this.y = y; this.lit = false; this.phase = Math.random() * Math.PI * 2; }
   draw(ctx, time) {
-    const s = 10;
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    // Candle body
-    ctx.fillStyle = this.lit ? '#FFD700' : '#AA9060';
-    ctx.fillRect(-s*0.15, -s*0.3, s*0.3, s*0.6);
-    // Flame
+    const s = 10; ctx.save(); ctx.translate(this.x, this.y);
+    ctx.fillStyle = this.lit ? '#FFD700' : '#AA9060'; ctx.fillRect(-s*0.15, -s*0.3, s*0.3, s*0.6);
     if (this.lit) {
       const flicker = Math.sin(time * 8 + this.phase) * 2;
-      ctx.fillStyle = '#FF6600';
-      ctx.beginPath();
-      ctx.moveTo(-s*0.1, -s*0.3);
-      ctx.quadraticCurveTo(0, -s*0.8 + flicker, s*0.1, -s*0.3);
-      ctx.fill();
-      ctx.fillStyle = '#FFCC00';
-      ctx.beginPath();
-      ctx.moveTo(-s*0.05, -s*0.3);
-      ctx.quadraticCurveTo(0, -s*0.6 + flicker, s*0.05, -s*0.3);
-      ctx.fill();
-      // Glow
-      const grd = ctx.createRadialGradient(0, -s*0.4, 0, 0, -s*0.4, s*2);
-      grd.addColorStop(0, 'rgba(255,200,50,0.3)');
-      grd.addColorStop(1, 'rgba(255,200,50,0)');
-      ctx.fillStyle = grd;
-      ctx.beginPath(); ctx.arc(0, -s*0.4, s*2, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#FF6600'; ctx.beginPath(); ctx.moveTo(-s*0.1, -s*0.3); ctx.quadraticCurveTo(0, -s*0.8 + flicker, s*0.1, -s*0.3); ctx.fill();
     }
     ctx.restore();
   }
 }
 
-// ==========================================================
-// LEVEL MANAGER
-// ==========================================================
 class LevelManager {
   constructor() {
-    this.currentLevel = 0;
-    this.state = 'title'; // title, playing, transition, win
-    this.transitionAlpha = 0;
-    this.transitionDir = 0; // 1 = fade in (white), -1 = fade out
-    this.mazeMap = null;
-    this.mazeWidth = 0;
-    this.mazeHeight = 0;
-    this.wallTexture = null;
-    this.player = null;
-    this.checkpoints = [];
-    this.lastCheckpoint = null;
-    this.exitX = 0; this.exitY = 0;
-    this.cameraX = 0; this.cameraY = 0;
-    this.levelStartTime = 0;
-    this.levelTimes = [];
-    this.cellSize = 0;
-    this.titleAlpha = 1;
-    this.titlePhase = 0;
-    this.particles = [];
+    this.currentLevel = 0; this.state = 'title'; this.transitionAlpha = 0; this.transitionDir = 0;
+    this.mazeMap = null; this.mazeWidth = 0; this.mazeHeight = 0; this.wallTexture = null;
+    this.player = null; this.checkpoints = []; this.exitX = 0; this.exitY = 0;
+    this.levelStartTime = 0; this.levelTimes = [];
   }
 
   getMazeConfig(level) {
     const configs = [
-      { cols: 5, rows: 7, cellSize: 50, wallThickness: 10 },    // 1
-      { cols: 6, rows: 9, cellSize: 45, wallThickness: 9 },     // 2
-      { cols: 7, rows: 11, cellSize: 40, wallThickness: 8 },    // 3
-      { cols: 8, rows: 13, cellSize: 38, wallThickness: 8 },    // 4
-      { cols: 10, rows: 15, cellSize: 35, wallThickness: 7 },   // 5
-      { cols: 11, rows: 17, cellSize: 32, wallThickness: 7 },   // 6
-      { cols: 12, rows: 19, cellSize: 30, wallThickness: 6 },   // 7
-      { cols: 14, rows: 22, cellSize: 28, wallThickness: 6 },   // 8
-      { cols: 15, rows: 25, cellSize: 26, wallThickness: 5 },   // 9
-      { cols: 16, rows: 35, cellSize: 24, wallThickness: 5 },   // 10
+      { cols: 5, rows: 7, cellSize: 50, wallThickness: 12 },
+      { cols: 6, rows: 9, cellSize: 45, wallThickness: 11 },
+      { cols: 7, rows: 11, cellSize: 40, wallThickness: 10 },
+      { cols: 8, rows: 13, cellSize: 38, wallThickness: 9 },
+      { cols: 10, rows: 15, cellSize: 35, wallThickness: 8 },
+      { cols: 11, rows: 17, cellSize: 32, wallThickness: 8 },
+      { cols: 12, rows: 19, cellSize: 30, wallThickness: 7 },
+      { cols: 14, rows: 22, cellSize: 28, wallThickness: 7 },
+      { cols: 15, rows: 25, cellSize: 26, wallThickness: 6 },
+      { cols: 16, rows: 35, cellSize: 24, wallThickness: 6 },
     ];
     return configs[level];
   }
@@ -577,831 +285,180 @@ class LevelManager {
     this.mazeMap = result.map;
     this.mazeWidth = result.width;
     this.mazeHeight = result.height;
-    this.cellSize = cfg.cellSize;
-
-    // Generate wall texture
     const ld = LEVEL_DATA[level];
     this.wallTexture = generateWallTexture(ld.wallTex, this.mazeWidth, this.mazeHeight, ld.wallColor);
-
-    // Player start (top-left cell center)
-    const startX = cfg.wallThickness + cfg.cellSize * 0.5 - cfg.wallThickness * 0.5;
-    const startY = cfg.wallThickness + cfg.cellSize * 0.5 - cfg.wallThickness * 0.5;
-    const playerSize = Math.min(cfg.cellSize - cfg.wallThickness - 4, 36);
-    this.player = new Player(startX, startY, playerSize);
-    this.player.speed = Math.max(1.5, 3 - level * 0.1);
-
-    // Exit (bottom-right cell center)
+    const startX = cfg.wallThickness + (cfg.cellSize - cfg.wallThickness) * 0.5;
+    const startY = cfg.wallThickness + (cfg.cellSize - cfg.wallThickness) * 0.5;
+    this.player = new Player(startX, startY, Math.min(cfg.cellSize * 0.7, 30));
+    this.player.speed = Math.max(1.8, 3 - level * 0.05);
     this.exitX = cfg.wallThickness + (cfg.cols - 1) * cfg.cellSize + (cfg.cellSize - cfg.wallThickness) * 0.5;
     this.exitY = cfg.wallThickness + (cfg.rows - 1) * cfg.cellSize + (cfg.cellSize - cfg.wallThickness) * 0.5;
-
-    // Checkpoints (from level 5+)
     this.checkpoints = [];
-    this.lastCheckpoint = null;
     if (level >= 4) {
-      const numCP = Math.min(level - 3, 5);
-      for (let i = 1; i <= numCP; i++) {
-        const frac = i / (numCP + 1);
-        const cpRow = Math.floor(frac * cfg.rows);
-        const cpCol = Math.floor(frac * cfg.cols);
-        const cpx = cfg.wallThickness + cpCol * cfg.cellSize + (cfg.cellSize - cfg.wallThickness) * 0.5;
-        const cpy = cfg.wallThickness + cpRow * cfg.cellSize + (cfg.cellSize - cfg.wallThickness) * 0.5;
-        this.checkpoints.push(new Checkpoint(cpx, cpy));
-      }
+       for(let i=0; i<3; i++) {
+         const r = Math.floor(cfg.rows/2), c = Math.floor(cfg.cols/2);
+         this.checkpoints.push(new Checkpoint(c*cfg.cellSize + cfg.cellSize/2, r*cfg.cellSize + cfg.cellSize/2));
+       }
     }
-
     this.levelStartTime = performance.now() / 1000;
-    this.particles = [];
   }
 
   checkCollision(px, py, radius) {
-    const r = Math.ceil(radius);
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (dx*dx + dy*dy > radius*radius) continue;
-        const mx = Math.floor(px + dx);
-        const my = Math.floor(py + dy);
-        if (mx < 0 || my < 0 || mx >= this.mazeWidth || my >= this.mazeHeight) return true;
-        if (this.mazeMap[my][mx] === 1) return true;
-      }
+    // Sprawdzamy 8 punktów wokół gracza dla lepszej precyzji
+    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+      const cx = Math.floor(px + Math.cos(angle) * radius);
+      const cy = Math.floor(py + Math.sin(angle) * radius);
+      if (cx < 0 || cy < 0 || cx >= this.mazeWidth || cy >= this.mazeHeight) return true;
+      if (this.mazeMap[cy][cx] === 1) return true;
     }
     return false;
   }
 
-  startGame() {
-    this.currentLevel = 0;
-    this.levelTimes = [];
-    this.loadLevel(0);
-    this.state = 'transition';
-    this.transitionAlpha = 1;
-    this.transitionDir = -1;
-  }
-
-  nextLevel() {
-    const elapsed = performance.now() / 1000 - this.levelStartTime;
-    this.levelTimes.push(elapsed);
-    this.currentLevel++;
-    if (this.currentLevel >= 10) {
-      this.state = 'win';
-    } else {
-      this.state = 'transition';
-      this.transitionAlpha = 0;
-      this.transitionDir = 1;
-    }
-  }
-
   update(dt, touchX, touchY, touching) {
-    const time = performance.now() / 1000;
-
-    if (this.state === 'title') {
-      this.titlePhase += dt;
-      return;
-    }
-
-    if (this.state === 'transition') {
-      this.transitionAlpha += this.transitionDir * dt * 2;
-      if (this.transitionDir === 1 && this.transitionAlpha >= 1) {
-        this.transitionAlpha = 1;
-        this.transitionDir = -1;
-        this.loadLevel(this.currentLevel);
-      }
-      if (this.transitionDir === -1 && this.transitionAlpha <= 0) {
-        this.transitionAlpha = 0;
-        this.state = 'playing';
-      }
-      return;
-    }
-
-    if (this.state !== 'playing') return;
-
-    // Touch to move
-    if (touching && this.player) {
-      // Convert screen coords to world coords
-      const worldX = touchX / this.scale + this.cameraX - this.offsetX / this.scale;
-      const worldY = touchY / this.scale + this.cameraY - this.offsetY / this.scale;
+    if (this.state === 'playing' && touching) {
+      const scale = Math.min(canvas.width / 180, canvas.height / 320);
+      const worldX = (touchX - (canvas.width/2)) / scale + this.player.x;
+      const worldY = (touchY - (canvas.height/2)) / scale + this.player.y;
       this.player.targetX = worldX;
       this.player.targetY = worldY;
     }
-
-    if (this.player) {
-      this.player.update(dt, (px, py, r) => this.checkCollision(px, py, r));
-
-      // Check checkpoints
-      for (const cp of this.checkpoints) {
-        if (!cp.lit) {
-          const dx = this.player.x - cp.x;
-          const dy = this.player.y - cp.y;
-          if (Math.sqrt(dx*dx+dy*dy) < 20) {
-            cp.lit = true;
-            this.lastCheckpoint = { x: cp.x, y: cp.y };
-          }
-        }
-      }
-
-      // Check exit
-      const dx = this.player.x - this.exitX;
-      const dy = this.player.y - this.exitY;
-      if (Math.sqrt(dx*dx+dy*dy) < 15) {
-        this.nextLevel();
-      }
-
-      // Particles for mystical effect
-      if (Math.random() < 0.05) {
-        this.particles.push({
-          x: this.player.x + (Math.random()-0.5)*60,
-          y: this.player.y + (Math.random()-0.5)*60,
-          life: 1, size: Math.random()*3+1, vx: (Math.random()-0.5)*0.5, vy: -Math.random()*0.5
-        });
-      }
-      this.particles = this.particles.filter(p => {
-        p.life -= dt * 0.5;
-        p.x += p.vx; p.y += p.vy;
-        return p.life > 0;
-      });
+    if (this.state === 'playing') {
+      this.player.update(dt, (x, y, r) => this.checkCollision(x, y, r));
+      const dExit = Math.hypot(this.player.x - this.exitX, this.player.y - this.exitY);
+      if (dExit < 15) this.nextLevel();
     }
-  }
-
-  // store these for coordinate conversion
-  scale = 1; offsetX = 0; offsetY = 0;
-
-  draw(ctx, cw, ch) {
-    const time = performance.now() / 1000;
-
-    if (this.state === 'title') {
-      this.drawTitle(ctx, cw, ch, time);
-      return;
-    }
-
-    if (this.state === 'win') {
-      this.drawWin(ctx, cw, ch, time);
-      return;
-    }
-
-    if (!this.player) {
-      if (this.state === 'transition') {
-        ctx.fillStyle = `rgba(255,255,255,${this.transitionAlpha})`;
-        ctx.fillRect(0, 0, cw, ch);
-      }
-      return;
-    }
-
-    const ld = LEVEL_DATA[this.currentLevel];
-
-    // Camera: center on player
-    const scale = Math.min(cw / (canvas.width * 0.6), ch / (canvas.height * 0.6));
-    this.scale = scale * 1.8;
-
-    this.cameraX = this.player.x - (cw / this.scale) / 2;
-    this.cameraY = this.player.y - (ch / this.scale) / 2;
-    this.offsetX = 0;
-    this.offsetY = 0;
-
-    ctx.save();
-    ctx.scale(this.scale, this.scale);
-    ctx.translate(-this.cameraX, -this.cameraY);
-
-    // Floor
-    ctx.fillStyle = ld.floorColor;
-    ctx.fillRect(0, 0, this.mazeWidth, this.mazeHeight);
-
-    // Floor detail
-    if (this.currentLevel >= 3) {
-      ctx.globalAlpha = 0.1;
-      for (let i = 0; i < 30; i++) {
-        ctx.fillStyle = '#000';
-        ctx.fillRect(
-          (Math.sin(i*47.3)*0.5+0.5)*this.mazeWidth,
-          (Math.sin(i*23.7)*0.5+0.5)*this.mazeHeight,
-          2, 2
-        );
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    // Draw walls using texture
-    if (this.wallTexture) {
-      // Create clipping mask for walls
-      ctx.save();
-      ctx.beginPath();
-      // We'll draw wall pixels as a path - too slow, use image compositing instead
-      // Just draw texture then clear floor areas
-      ctx.drawImage(this.wallTexture, 0, 0);
-
-      // Clear floor cells
-      ctx.globalCompositeOperation = 'destination-out';
-      for (let y = 0; y < this.mazeHeight; y++) {
-        let runStart = -1;
-        for (let x = 0; x <= this.mazeWidth; x++) {
-          const isFloor = x < this.mazeWidth && this.mazeMap[y] && this.mazeMap[y][x] === 0;
-          if (isFloor && runStart === -1) {
-            runStart = x;
-          } else if (!isFloor && runStart !== -1) {
-            ctx.fillStyle = 'rgba(0,0,0,1)';
-            ctx.fillRect(runStart, y, x - runStart, 1);
-            runStart = -1;
-          }
-        }
-      }
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.restore();
-
-      // Draw floor under cleared areas
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-over';
-      ctx.fillStyle = ld.floorColor;
-      ctx.fillRect(0, 0, this.mazeWidth, this.mazeHeight);
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.restore();
-    }
-
-    // Exit glow
-    const exitPulse = Math.sin(time * 3) * 0.3 + 0.7;
-    const exitGrd = ctx.createRadialGradient(this.exitX, this.exitY, 0, this.exitX, this.exitY, 25);
-    exitGrd.addColorStop(0, `rgba(255,215,0,${exitPulse * 0.6})`);
-    exitGrd.addColorStop(0.5, `rgba(255,215,0,${exitPulse * 0.2})`);
-    exitGrd.addColorStop(1, 'rgba(255,215,0,0)');
-    ctx.fillStyle = exitGrd;
-    ctx.beginPath(); ctx.arc(this.exitX, this.exitY, 25, 0, Math.PI*2); ctx.fill();
-
-    // Exit symbol
-    ctx.fillStyle = `rgba(255,215,0,${exitPulse})`;
-    ctx.font = 'bold 14px Georgia';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('✦', this.exitX, this.exitY);
-
-    // Checkpoints
-    for (const cp of this.checkpoints) {
-      cp.draw(ctx, time);
-    }
-
-    // Particles
-    for (const p of this.particles) {
-      ctx.fillStyle = `rgba(255,255,200,${p.life * 0.5})`;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
-    }
-
-    // Player
-    this.player.draw(ctx);
-
-    ctx.restore();
-
-    // Fog of war
-    if (ld.fogRadius > 0) {
-      const fogR = ld.fogRadius * this.scale;
-      const px = (this.player.x - this.cameraX) * this.scale;
-      const py = (this.player.y - this.cameraY) * this.scale;
-
-      ctx.save();
-      ctx.globalCompositeOperation = 'source-over';
-      // Draw black overlay with circular cutout
-      const fogCanvas = document.createElement('canvas');
-      fogCanvas.width = cw; fogCanvas.height = ch;
-      const fc = fogCanvas.getContext('2d');
-      fc.fillStyle = `rgba(0,0,0,${1 - ld.ambient})`;
-      fc.fillRect(0, 0, cw, ch);
-      fc.globalCompositeOperation = 'destination-out';
-      const fogGrad = fc.createRadialGradient(px, py, fogR * 0.3, px, py, fogR);
-      fogGrad.addColorStop(0, 'rgba(0,0,0,1)');
-      fogGrad.addColorStop(1, 'rgba(0,0,0,0)');
-      fc.fillStyle = fogGrad;
-      fc.beginPath(); fc.arc(px, py, fogR, 0, Math.PI*2); fc.fill();
-
-      // Checkpoint glows in fog
-      for (const cp of this.checkpoints) {
-        if (cp.lit) {
-          const cpx = (cp.x - this.cameraX) * this.scale;
-          const cpy = (cp.y - this.cameraY) * this.scale;
-          const cpGrad = fc.createRadialGradient(cpx, cpy, 0, cpx, cpy, fogR * 0.3);
-          cpGrad.addColorStop(0, 'rgba(0,0,0,0.8)');
-          cpGrad.addColorStop(1, 'rgba(0,0,0,0)');
-          fc.fillStyle = cpGrad;
-          fc.beginPath(); fc.arc(cpx, cpy, fogR * 0.3, 0, Math.PI*2); fc.fill();
-        }
-      }
-
-      ctx.drawImage(fogCanvas, 0, 0);
-      ctx.restore();
-    }
-
-    // HUD
-    this.drawHUD(ctx, cw, ch, time);
-
-    // Transition overlay
     if (this.state === 'transition') {
-      ctx.fillStyle = `rgba(255,255,255,${this.transitionAlpha})`;
-      ctx.fillRect(0, 0, cw, ch);
-
-      if (this.transitionAlpha > 0.5) {
-        ctx.fillStyle = `rgba(0,0,0,${(this.transitionAlpha - 0.5) * 2})`;
-        ctx.font = `bold ${cw * 0.06}px Georgia`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const ld2 = LEVEL_DATA[this.currentLevel];
-        ctx.fillText(ld2.name, cw/2, ch/2 - 20);
-        ctx.font = `${cw * 0.035}px Georgia`;
-        ctx.fillText(ld2.sub, cw/2, ch/2 + 20);
+      this.transitionAlpha += this.transitionDir * dt * 2;
+      if (this.transitionAlpha >= 1 && this.transitionDir === 1) {
+        this.loadLevel(this.currentLevel);
+        this.transitionDir = -1;
+      } else if (this.transitionAlpha <= 0 && this.transitionDir === -1) {
+        this.state = 'playing';
       }
     }
   }
 
-  drawHUD(ctx, cw, ch, time) {
+  nextLevel() {
+    this.levelTimes.push(performance.now()/1000 - this.levelStartTime);
+    this.currentLevel++;
+    if (this.currentLevel >= 10) this.state = 'win';
+    else { this.state = 'transition'; this.transitionAlpha = 0; this.transitionDir = 1; }
+  }
+
+  drawHUD(ctx, cw, ch) {
     const ld = LEVEL_DATA[this.currentLevel];
-    const elapsed = time - this.levelStartTime;
-    const mins = Math.floor(elapsed / 60);
-    const secs = Math.floor(elapsed % 60);
-    const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`;
-
-    // Top bar
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(0, 0, cw, 50);
-
-    ctx.fillStyle = '#fff';
-    ctx.font = `bold ${cw * 0.035}px Georgia`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(ld.name, 12, 18);
-
-    ctx.font = `${cw * 0.025}px Georgia`;
-    ctx.fillStyle = '#ccc';
-    ctx.fillText(ld.sub, 12, 38);
-
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#FFD700';
-    ctx.font = `bold ${cw * 0.04}px Georgia`;
-    ctx.fillText(timeStr, cw - 12, 25);
-
-    // Checkpoint indicator
-    if (this.checkpoints.length > 0) {
-      const litCount = this.checkpoints.filter(c => c.lit).length;
-      ctx.font = `${cw * 0.025}px Georgia`;
-      ctx.fillStyle = '#aaa';
-      ctx.fillText(`🕯 ${litCount}/${this.checkpoints.length}`, cw - 12, 42);
-    }
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, cw, 60);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Georgia'; ctx.textAlign = 'left';
+    ctx.fillText(ld.name, 15, 25);
+    ctx.font = '12px Georgia'; ctx.fillStyle = '#aaa'; ctx.fillText(ld.sub, 15, 45);
   }
 
-  drawTitle(ctx, cw, ch, time) {
-    // Background
-    const bgGrad = ctx.createLinearGradient(0, 0, 0, ch);
-    bgGrad.addColorStop(0, '#1a1520');
-    bgGrad.addColorStop(0.5, '#2a2030');
-    bgGrad.addColorStop(1, '#0a0810');
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, cw, ch);
-
-    // Floating particles
-    for (let i = 0; i < 50; i++) {
-      const x = (Math.sin(time * 0.3 + i * 1.7) * 0.5 + 0.5) * cw;
-      const y = (Math.sin(time * 0.2 + i * 2.3) * 0.5 + 0.5) * ch;
-      const a = Math.sin(time + i) * 0.3 + 0.3;
-      ctx.fillStyle = `rgba(255,220,150,${a})`;
-      ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI*2); ctx.fill();
-    }
-
-    // Title glow
-    const titleY = ch * 0.32;
-    const glowR = 100 + Math.sin(time * 2) * 20;
-    const grd = ctx.createRadialGradient(cw/2, titleY, 0, cw/2, titleY, glowR);
-    grd.addColorStop(0, 'rgba(255,215,100,0.15)');
-    grd.addColorStop(1, 'rgba(255,215,100,0)');
-    ctx.fillStyle = grd;
-    ctx.beginPath(); ctx.arc(cw/2, titleY, glowR, 0, Math.PI*2); ctx.fill();
-
-    // Title text
-    ctx.fillStyle = '#f0e8d0';
-    ctx.font = `bold ${cw * 0.085}px Georgia`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Wprowadź', cw/2, titleY - cw*0.06);
-    ctx.fillText('Mnie Panie', cw/2, titleY + cw*0.06);
-
-    // Subtitle
-    ctx.fillStyle = 'rgba(200,190,170,0.7)';
-    ctx.font = `italic ${cw * 0.035}px Georgia`;
-    ctx.fillText('Mistyczna podróż przez 10 labiryntów', cw/2, titleY + cw*0.15);
-
-    // Draw character preview
-    const previewPlayer = new Player(cw/2, ch * 0.55, 50);
-    previewPlayer.bobPhase = time * 2;
-    previewPlayer.moving = true;
-    previewPlayer.draw(ctx);
-
-    // Start button
-    const btnY = ch * 0.78;
-    const btnW = cw * 0.5;
-    const btnH = cw * 0.12;
-    const pulse = Math.sin(time * 3) * 3;
-
-    ctx.fillStyle = 'rgba(255,215,100,0.15)';
-    ctx.strokeStyle = 'rgba(255,215,100,0.6)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(cw/2 - btnW/2, btnY - btnH/2 + pulse, btnW, btnH, 10);
-    ctx.fill(); ctx.stroke();
-
-    ctx.fillStyle = '#f0e0b0';
-    ctx.font = `bold ${cw * 0.045}px Georgia`;
-    ctx.fillText('ROZPOCZNIJ', cw/2, btnY + pulse);
-
-    // Tap hint
-    const hintAlpha = Math.sin(time * 2) * 0.3 + 0.5;
-    ctx.fillStyle = `rgba(180,170,150,${hintAlpha})`;
-    ctx.font = `${cw * 0.03}px Georgia`;
-    ctx.fillText('Dotknij, aby rozpocząć podróż', cw/2, ch * 0.9);
-
-    // Store button bounds for click
-    this._titleBtnBounds = {
-      x: cw/2 - btnW/2, y: btnY - btnH/2 - 5,
-      w: btnW, h: btnH + 10
-    };
+  drawTitle(ctx, cw, ch) {
+    ctx.fillStyle = '#1a1520'; ctx.fillRect(0,0,cw,ch);
+    ctx.fillStyle = '#f0e8d0'; ctx.font = 'bold 30px Georgia'; ctx.textAlign = 'center';
+    ctx.fillText('Wprowadź', cw/2, ch*0.3); ctx.fillText('Mnie Panie', cw/2, ch*0.4);
+    ctx.font = '16px Georgia'; ctx.fillText('Dotknij by zacząć', cw/2, ch*0.8);
   }
 
-  drawWin(ctx, cw, ch, time) {
-    const bgGrad = ctx.createLinearGradient(0, 0, 0, ch);
-    bgGrad.addColorStop(0, '#fffbe8');
-    bgGrad.addColorStop(0.5, '#fff8d0');
-    bgGrad.addColorStop(1, '#f0e8c0');
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, cw, ch);
-
-    // Rays
-    ctx.save();
-    ctx.translate(cw/2, ch*0.3);
-    for (let i = 0; i < 12; i++) {
-      ctx.rotate(Math.PI/6);
-      ctx.fillStyle = `rgba(255,215,100,${0.05 + Math.sin(time*2+i)*0.03})`;
-      ctx.beginPath();
-      ctx.moveTo(-10, 0);
-      ctx.lineTo(-30, -ch);
-      ctx.lineTo(30, -ch);
-      ctx.lineTo(10, 0);
-      ctx.fill();
-    }
-    ctx.restore();
-
-    // Particles
-    for (let i = 0; i < 80; i++) {
-      const x = (Math.sin(time * 0.5 + i * 1.1) * 0.5 + 0.5) * cw;
-      const y = (Math.cos(time * 0.3 + i * 0.9) * 0.5 + 0.5) * ch;
-      ctx.fillStyle = `rgba(255,200,50,${Math.sin(time+i)*0.3+0.3})`;
-      ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI*2); ctx.fill();
-    }
-
-    ctx.fillStyle = '#5a4a2a';
-    ctx.font = `bold ${cw * 0.08}px Georgia`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Wprowadzony.', cw/2, ch * 0.25);
-
-    ctx.font = `italic ${cw * 0.035}px Georgia`;
-    ctx.fillStyle = '#8a7a5a';
-    ctx.fillText('Ukończyłeś wszystkie 10 labiryntów', cw/2, ch * 0.33);
-
-    // Times
-    let totalTime = 0;
-    ctx.font = `${cw * 0.028}px Georgia`;
-    ctx.fillStyle = '#6a5a3a';
-    for (let i = 0; i < this.levelTimes.length; i++) {
-      const t = this.levelTimes[i];
-      totalTime += t;
-      const m = Math.floor(t/60);
-      const s = Math.floor(t%60);
-      const name = LEVEL_DATA[i].name;
-      ctx.textAlign = 'left';
-      ctx.fillText(`${i+1}. ${name}`, cw * 0.12, ch * 0.42 + i * (ch * 0.045));
-      ctx.textAlign = 'right';
-      ctx.fillText(`${m}:${s.toString().padStart(2,'0')}`, cw * 0.88, ch * 0.42 + i * (ch * 0.045));
-    }
-
-    // Total
-    ctx.fillStyle = '#4a3a1a';
-    ctx.font = `bold ${cw * 0.04}px Georgia`;
-    ctx.textAlign = 'center';
-    const tm = Math.floor(totalTime/60);
-    const ts = Math.floor(totalTime%60);
-    ctx.fillText(`Czas Wprowadzenia: ${tm}:${ts.toString().padStart(2,'0')}`, cw/2, ch * 0.9);
-
-    // Play again
-    const btnY = ch * 0.95;
-    ctx.fillStyle = `rgba(100,80,40,${Math.sin(time*3)*0.2+0.7})`;
-    ctx.font = `${cw * 0.03}px Georgia`;
-    ctx.fillText('Dotknij, aby zagrać ponownie', cw/2, btnY);
-  }
-
-  handleTouch(x, y) {
-    if (this.state === 'title') {
-      this.startGame();
-    } else if (this.state === 'win') {
-      this.state = 'title';
-    }
+  drawWin(ctx, cw, ch) {
+    ctx.fillStyle = '#fffbe8'; ctx.fillRect(0,0,cw,ch);
+    ctx.fillStyle = '#5a4a2a'; ctx.font = 'bold 24px Georgia'; ctx.textAlign = 'center';
+    ctx.fillText('WPROWADZONY', cw/2, ch*0.5);
   }
 }
 
-// ==========================================================
-// MAIN GAME LOOP
-// ==========================================================
 const game = new LevelManager();
-let touchX = 0, touchY = 0, isTouching = false;
 let lastTime = performance.now();
+let isTouching = false, touchX = 0, touchY = 0;
+let mazeCanvas = null, lastMazeLvl = -1;
 
-// Cached fog canvas to avoid creating new one each frame
-let fogCanvas = null;
-function getFogCanvas(w, h) {
-  if (!fogCanvas || fogCanvas.width !== w || fogCanvas.height !== h) {
-    fogCanvas = document.createElement('canvas');
-    fogCanvas.width = w;
-    fogCanvas.height = h;
-  }
-  return fogCanvas;
-}
-
-// Override the fog drawing to use cached canvas
-const originalDraw = game.draw.bind(game);
-
-function getCanvasCoords(e) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  let cx, cy;
-  if (e.touches) {
-    cx = (e.touches[0].clientX - rect.left) * scaleX;
-    cy = (e.touches[0].clientY - rect.top) * scaleY;
-  } else {
-    cx = (e.clientX - rect.left) * scaleX;
-    cy = (e.clientY - rect.top) * scaleY;
-  }
-  return { x: cx, y: cy };
-}
-
-// Touch events
-canvas.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  const coords = getCanvasCoords(e);
-  touchX = coords.x; touchY = coords.y;
-  isTouching = true;
-  if (game.state === 'title' || game.state === 'win') {
-    game.handleTouch(touchX, touchY);
-  }
-}, { passive: false });
-
-canvas.addEventListener('touchmove', (e) => {
-  e.preventDefault();
-  const coords = getCanvasCoords(e);
-  touchX = coords.x; touchY = coords.y;
-}, { passive: false });
-
-canvas.addEventListener('touchend', (e) => {
-  e.preventDefault();
-  isTouching = false;
-}, { passive: false });
-
-// Mouse events (desktop)
-canvas.addEventListener('mousedown', (e) => {
-  const coords = getCanvasCoords(e);
-  touchX = coords.x; touchY = coords.y;
-  isTouching = true;
-  if (game.state === 'title' || game.state === 'win') {
-    game.handleTouch(touchX, touchY);
-  }
-});
-canvas.addEventListener('mousemove', (e) => {
-  if (isTouching) {
-    const coords = getCanvasCoords(e);
-    touchX = coords.x; touchY = coords.y;
-  }
-});
-canvas.addEventListener('mouseup', () => { isTouching = false; });
-
-// Pre-render maze to offscreen canvas for performance
-let mazeCanvas = null;
-let lastMazeLevel = -1;
-
-function renderMazeToCanvas(game) {
-  const ld = LEVEL_DATA[game.currentLevel];
+function renderMaze(game) {
   mazeCanvas = document.createElement('canvas');
-  mazeCanvas.width = game.mazeWidth;
-  mazeCanvas.height = game.mazeHeight;
+  mazeCanvas.width = game.mazeWidth; mazeCanvas.height = game.mazeHeight;
   const mc = mazeCanvas.getContext('2d');
-
-  // Draw floor
-  mc.fillStyle = ld.floorColor;
-  mc.fillRect(0, 0, game.mazeWidth, game.mazeHeight);
-
-  // Floor details
-  if (game.currentLevel >= 3) {
-    mc.globalAlpha = 0.15;
-    for (let i = 0; i < 80; i++) {
-      mc.fillStyle = `rgba(0,0,0,${Math.random()*0.3})`;
-      const fx = (Math.sin(i*47.3)*0.5+0.5)*game.mazeWidth;
-      const fy = (Math.sin(i*23.7)*0.5+0.5)*game.mazeHeight;
-      mc.fillRect(fx, fy, 1+Math.random()*2, 1+Math.random()*2);
+  mc.drawImage(game.wallTexture, 0, 0);
+  mc.globalCompositeOperation = 'destination-out';
+  for(let y=0; y<game.mazeHeight; y++) {
+    for(let x=0; x<game.mazeWidth; x++) {
+      if(game.mazeMap[y][x] === 0) mc.fillRect(x, y, 1, 1);
     }
-    mc.globalAlpha = 1;
   }
-
-  // Draw walls using texture
-  if (game.wallTexture) {
-    // Create a wall-only canvas
-    const wallOnly = document.createElement('canvas');
-    wallOnly.width = game.mazeWidth;
-    wallOnly.height = game.mazeHeight;
-    const wc = wallOnly.getContext('2d');
-
-    // Draw texture
-    wc.drawImage(game.wallTexture, 0, 0);
-
-    // Cut out floor areas
-    wc.globalCompositeOperation = 'destination-out';
-    for (let y = 0; y < game.mazeHeight; y++) {
-      let runStart = -1;
-      for (let x = 0; x <= game.mazeWidth; x++) {
-        const isFloor = x < game.mazeWidth && game.mazeMap[y] && game.mazeMap[y][x] === 0;
-        if (isFloor && runStart === -1) {
-          runStart = x;
-        } else if (!isFloor && runStart !== -1) {
-          wc.fillStyle = 'rgba(0,0,0,1)';
-          wc.fillRect(runStart, y, x - runStart, 1);
-          runStart = -1;
-        }
-      }
-    }
-    wc.globalCompositeOperation = 'source-over';
-
-    // Add 3D-ish edge shadow to walls
-    const edgeCanvas = document.createElement('canvas');
-    edgeCanvas.width = game.mazeWidth;
-    edgeCanvas.height = game.mazeHeight;
-    const ec = edgeCanvas.getContext('2d');
-
-    for (let y = 1; y < game.mazeHeight - 1; y++) {
-      for (let x = 1; x < game.mazeWidth - 1; x++) {
-        if (game.mazeMap[y][x] === 0) {
-          // Check adjacent walls for shadow
-          if (game.mazeMap[y-1][x] === 1) {
-            ec.fillStyle = 'rgba(0,0,0,0.15)';
-            ec.fillRect(x, y, 1, 2);
-          }
-          if (game.mazeMap[y][x-1] === 1) {
-            ec.fillStyle = 'rgba(0,0,0,0.1)';
-            ec.fillRect(x, y, 2, 1);
-          }
-        }
-      }
-    }
-
-    mc.drawImage(wallOnly, 0, 0);
-    mc.drawImage(edgeCanvas, 0, 0);
-  }
-
-  lastMazeLevel = game.currentLevel;
+  lastMazeLvl = game.currentLevel;
 }
 
 function gameLoop() {
   const now = performance.now();
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
-
-  const cw = canvas.width;
-  const ch = canvas.height;
-
   game.update(dt, touchX, touchY, isTouching);
+  ctx.fillStyle = '#000'; ctx.fillRect(0,0,canvas.width, canvas.height);
 
-  ctx.clearRect(0, 0, cw, ch);
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, cw, ch);
-
-  if (game.state === 'title') {
-    game.drawTitle(ctx, cw, ch, performance.now() / 1000);
-  } else if (game.state === 'win') {
-    game.drawWin(ctx, cw, ch, performance.now() / 1000);
-  } else if (game.player) {
-    const time = performance.now() / 1000;
-    const ld = LEVEL_DATA[game.currentLevel];
-
-    // Pre-render maze if needed
-    if (lastMazeLevel !== game.currentLevel) {
-      renderMazeToCanvas(game);
-    }
-
-    // Camera
-    const scale = Math.min(cw / 180, ch / 320);
-    game.scale = scale;
-    game.cameraX = game.player.x - (cw / scale) / 2;
-    game.cameraY = game.player.y - (ch / scale) / 2;
-
+  if (game.state === 'title') game.drawTitle(ctx, canvas.width, canvas.height);
+  else if (game.state === 'win') game.drawWin(ctx, canvas.width, canvas.height);
+  else if (game.player) {
+    if (lastMazeLvl !== game.currentLevel) renderMaze(game);
+    const scale = Math.min(canvas.width / 180, canvas.height / 320);
     ctx.save();
+    ctx.translate(canvas.width/2, canvas.height/2);
     ctx.scale(scale, scale);
-    ctx.translate(-game.cameraX, -game.cameraY);
-
-    // Draw pre-rendered maze
-    if (mazeCanvas) {
-      ctx.drawImage(mazeCanvas, 0, 0);
-    }
-
-    // Exit glow
-    const exitPulse = Math.sin(time * 3) * 0.3 + 0.7;
-    const exitGrd = ctx.createRadialGradient(game.exitX, game.exitY, 0, game.exitX, game.exitY, 25);
-    exitGrd.addColorStop(0, `rgba(255,215,0,${exitPulse * 0.6})`);
-    exitGrd.addColorStop(0.5, `rgba(255,215,0,${exitPulse * 0.2})`);
-    exitGrd.addColorStop(1, 'rgba(255,215,0,0)');
-    ctx.fillStyle = exitGrd;
-    ctx.beginPath(); ctx.arc(game.exitX, game.exitY, 25, 0, Math.PI*2); ctx.fill();
-
-    ctx.fillStyle = `rgba(255,215,0,${exitPulse})`;
-    ctx.font = 'bold 14px Georgia';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('✦', game.exitX, game.exitY);
-
-    // Checkpoints
-    for (const cp of game.checkpoints) {
-      cp.draw(ctx, time);
-    }
-
-    // Particles
-    for (const p of game.particles) {
-      ctx.fillStyle = `rgba(255,255,200,${p.life * 0.5})`;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
-    }
-
-    // Player
+    ctx.translate(-game.player.x, -game.player.y);
+    ctx.fillStyle = LEVEL_DATA[game.currentLevel].floorColor;
+    ctx.fillRect(0,0,game.mazeWidth, game.mazeHeight);
+    ctx.drawImage(mazeCanvas, 0, 0);
+    ctx.fillStyle = 'gold'; ctx.fillText('✦', game.exitX, game.exitY);
     game.player.draw(ctx);
-
     ctx.restore();
-
-    // Fog of war
+    
+    // FOG
+    const ld = LEVEL_DATA[game.currentLevel];
     if (ld.fogRadius > 0) {
-      const fogR = ld.fogRadius * scale * 0.7;
-      const px = (game.player.x - game.cameraX) * scale;
-      const py = (game.player.y - game.cameraY) * scale;
-
-      const fc2 = getFogCanvas(cw, ch);
-      const fcCtx = fc2.getContext('2d');
-      fcCtx.clearRect(0, 0, cw, ch);
-      fcCtx.fillStyle = `rgba(0,0,0,${1 - ld.ambient})`;
-      fcCtx.fillRect(0, 0, cw, ch);
-      fcCtx.globalCompositeOperation = 'destination-out';
-
-      const fogGrad = fcCtx.createRadialGradient(px, py, fogR * 0.2, px, py, fogR);
-      fogGrad.addColorStop(0, 'rgba(0,0,0,1)');
-      fogGrad.addColorStop(1, 'rgba(0,0,0,0)');
-      fcCtx.fillStyle = fogGrad;
-      fcCtx.beginPath(); fcCtx.arc(px, py, fogR, 0, Math.PI*2); fcCtx.fill();
-
-      for (const cp of game.checkpoints) {
-        if (cp.lit) {
-          const cpx = (cp.x - game.cameraX) * scale;
-          const cpy = (cp.y - game.cameraY) * scale;
-          const cpGrad = fcCtx.createRadialGradient(cpx, cpy, 0, cpx, cpy, fogR*0.25);
-          cpGrad.addColorStop(0, 'rgba(0,0,0,0.7)');
-          cpGrad.addColorStop(1, 'rgba(0,0,0,0)');
-          fcCtx.fillStyle = cpGrad;
-          fcCtx.beginPath(); fcCtx.arc(cpx, cpy, fogR*0.25, 0, Math.PI*2); fcCtx.fill();
-        }
-      }
-
-      fcCtx.globalCompositeOperation = 'source-over';
-      ctx.drawImage(fc2, 0, 0);
+        const fog = document.createElement('canvas');
+        fog.width = canvas.width; fog.height = canvas.height;
+        const fc = fog.getContext('2d');
+        fc.fillStyle = `rgba(0,0,0,${1-ld.ambient})`;
+        fc.fillRect(0,0,canvas.width, canvas.height);
+        fc.globalCompositeOperation = 'destination-out';
+        const grad = fc.createRadialGradient(canvas.width/2, canvas.height/2, 20, canvas.width/2, canvas.height/2, ld.fogRadius*scale);
+        grad.addColorStop(0, 'white'); grad.addColorStop(1, 'transparent');
+        fc.fillStyle = grad; fc.beginPath(); fc.arc(canvas.width/2, canvas.height/2, ld.fogRadius*scale, 0, Math.PI*2); fc.fill();
+        ctx.drawImage(fog, 0, 0);
     }
-
-    // HUD
-    game.drawHUD(ctx, cw, ch, time);
-
-    // Transition
-    if (game.state === 'transition') {
-      ctx.fillStyle = `rgba(255,255,255,${game.transitionAlpha})`;
-      ctx.fillRect(0, 0, cw, ch);
-
-      if (game.transitionAlpha > 0.5) {
-        ctx.fillStyle = `rgba(50,40,30,${(game.transitionAlpha - 0.5) * 2})`;
-        ctx.font = `bold ${cw * 0.06}px Georgia`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const ld2 = LEVEL_DATA[game.currentLevel];
-        ctx.fillText(ld2.name, cw/2, ch/2 - 20);
-        ctx.font = `${cw * 0.035}px Georgia`;
-        ctx.fillText(ld2.sub, cw/2, ch/2 + 20);
-      }
-    }
-  } else if (game.state === 'transition') {
-    ctx.fillStyle = `rgba(255,255,255,${game.transitionAlpha})`;
-    ctx.fillRect(0, 0, cw, ch);
-    if (game.transitionAlpha > 0.5) {
-      ctx.fillStyle = `rgba(50,40,30,${(game.transitionAlpha - 0.5) * 2})`;
-      ctx.font = `bold ${cw * 0.06}px Georgia`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      const ld2 = LEVEL_DATA[game.currentLevel];
-      ctx.fillText(ld2.name, cw/2, ch/2 - 20);
-      ctx.font = `${cw * 0.035}px Georgia`;
-      ctx.fillText(ld2.sub, cw/2, ch/2 + 20);
-    }
+    game.drawHUD(ctx, canvas.width, canvas.height);
   }
 
+  if (game.state === 'transition') {
+    ctx.fillStyle = `rgba(255,255,255,${game.transitionAlpha})`;
+    ctx.fillRect(0,0,canvas.width, canvas.height);
+  }
   requestAnimationFrame(gameLoop);
 }
 
-requestAnimationFrame(gameLoop);
+canvas.addEventListener('mousedown', (e) => { 
+    const rect = canvas.getBoundingClientRect();
+    touchX = (e.clientX - rect.left) * (canvas.width/rect.width);
+    touchY = (e.clientY - rect.top) * (canvas.height/rect.height);
+    isTouching = true; 
+    if(game.state !== 'playing') game.state === 'win' ? game.state='title' : game.loadLevel(0), game.state='playing';
+});
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    touchX = (e.clientX - rect.left) * (canvas.width/rect.width);
+    touchY = (e.clientY - rect.top) * (canvas.height/rect.height);
+});
+canvas.addEventListener('mouseup', () => isTouching = false);
 
-</script>
-</body>
-</html>
+canvas.addEventListener('touchstart', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    touchX = (e.touches[0].clientX - rect.left) * (canvas.width/rect.width);
+    touchY = (e.touches[0].clientY - rect.top) * (canvas.height/rect.height);
+    isTouching = true;
+    if(game.state !== 'playing') game.state === 'win' ? game.state='title' : game.loadLevel(0), game.state='playing';
+}, {passive: false});
+canvas.addEventListener('touchmove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    touchX = (e.touches[0].clientX - rect.left) * (canvas.width/rect.width);
+    touchY = (e.touches[0].clientY - rect.top) * (canvas.height/rect.height);
+}, {passive: false});
+canvas.addEventListener('touchend', () => isTouching = false);
+
+requestAnimationFrame(gameLoop);
